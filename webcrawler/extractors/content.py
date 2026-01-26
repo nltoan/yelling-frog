@@ -21,8 +21,11 @@ class ContentAnalyzer:
 
         Returns:
             - word_count: Words inside body tag
+            - sentence_count: Number of sentences
+            - avg_words_per_sentence: Average words per sentence
             - text_ratio: Non-HTML chars / total chars as percentage
             - readability: Flesch reading ease score
+            - readability_grade: Text difficulty grade (e.g., "Hard", "Normal")
             - hash: MD5 hash for exact duplicate detection
             - text_content: Cleaned text for similarity analysis
         """
@@ -47,6 +50,15 @@ class ContentAnalyzer:
         words = self._tokenize_words(text_content)
         word_count = len(words)
 
+        # Calculate sentence count
+        sentences = self._count_sentences(text_content)
+        sentence_count = len(sentences)
+        
+        # Calculate average words per sentence
+        avg_words_per_sentence = 0.0
+        if sentence_count > 0:
+            avg_words_per_sentence = round(word_count / sentence_count, 3)
+
         # Calculate text ratio
         total_chars = len(html)
         text_chars = len(text_content)
@@ -54,14 +66,20 @@ class ContentAnalyzer:
 
         # Calculate readability score
         readability = self._calculate_readability(text_content)
+        
+        # Get readability grade
+        readability_grade = self._get_readability_grade(readability)
 
         # Calculate content hash
         content_hash = self._calculate_hash(text_content)
 
         result = {
             'word_count': word_count,
-            'text_ratio': round(text_ratio, 2),
-            'readability': readability,
+            'sentence_count': sentence_count,
+            'avg_words_per_sentence': avg_words_per_sentence,
+            'text_ratio': round(text_ratio, 3),
+            'readability': round(readability, 3),
+            'readability_grade': readability_grade,
             'hash': content_hash,
             'text_content': text_content,  # Keep for similarity analysis
         }
@@ -70,6 +88,62 @@ class ContentAnalyzer:
         self.content_hashes[url] = content_hash
 
         return result
+    
+    def _count_sentences(self, text: str) -> List[str]:
+        """
+        Split text into sentences.
+        Matches Screaming Frog's sentence counting methodology:
+        - Each sentence-ending punctuation creates a break
+        - Colons, semicolons also create breaks
+        - Counts word groups of 2+ words as sentence units
+        
+        Screaming Frog seems to count on word boundaries more aggressively,
+        resulting in higher sentence counts and lower avg words/sentence.
+        """
+        if not text:
+            return []
+        
+        # Split on sentence-ending punctuation AND other common breaks
+        # Screaming Frog appears to split more aggressively than traditional sentence detection
+        # Include: periods, questions, exclamations, colons, semicolons, em-dashes, bullets
+        sentences = re.split(r'[.!?;:•–—]+|\n+', text)
+        
+        # Filter to segments with at least 2 words (count each as a sentence unit)
+        valid_sentences = []
+        for s in sentences:
+            s = s.strip()
+            words = s.split()
+            if len(words) >= 2:
+                valid_sentences.append(s)
+        
+        return valid_sentences
+    
+    def _get_readability_grade(self, flesch_score: float) -> str:
+        """
+        Convert Flesch Reading Ease score to grade
+        
+        90-100: Very Easy
+        80-89: Easy
+        70-79: Fairly Easy
+        60-69: Normal
+        50-59: Fairly Hard
+        30-49: Hard
+        0-29: Very Hard
+        """
+        if flesch_score >= 90:
+            return "Very Easy"
+        elif flesch_score >= 80:
+            return "Easy"
+        elif flesch_score >= 70:
+            return "Fairly Easy"
+        elif flesch_score >= 60:
+            return "Normal"
+        elif flesch_score >= 50:
+            return "Fairly Hard"
+        elif flesch_score >= 30:
+            return "Hard"
+        else:
+            return "Very Hard"
 
     def _tokenize_words(self, text: str) -> List[str]:
         """Tokenize text into words"""

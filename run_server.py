@@ -5,8 +5,9 @@ Run the Web Crawler API server with frontend
 import os
 import sys
 
-# Ensure we're in the right directory
-sys.path.insert(0, '/app')
+# Get the base directory (where this script is located)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE_DIR)
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -21,7 +22,7 @@ main_app = FastAPI(
 )
 
 # Create data directory if it doesn't exist
-os.makedirs('/app/data', exist_ok=True)
+os.makedirs(os.path.join(BASE_DIR, 'data'), exist_ok=True)
 os.makedirs('/tmp', exist_ok=True)
 
 # Import the API app and mount it
@@ -29,7 +30,7 @@ from webcrawler.api.main import app as api_app
 main_app.mount("/api", api_app)
 
 # Mount frontend
-frontend_path = '/app/frontend'
+frontend_path = os.path.join(BASE_DIR, 'frontend')
 if os.path.exists(frontend_path):
     # Serve static files
     if os.path.exists(f'{frontend_path}/static'):
@@ -42,7 +43,7 @@ if os.path.exists(frontend_path):
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("🕷️  Web Crawler - Screaming Frog Clone")
+    print("🐸 Yelling Frog - SEO Spider")
     print("=" * 60)
     print("Web UI: http://0.0.0.0:8000/")
     print("API: http://0.0.0.0:8000/api")

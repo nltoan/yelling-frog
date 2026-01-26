@@ -90,12 +90,17 @@ class CrawledURL:
 
     # Content Analysis
     word_count: int = 0
+    sentence_count: int = 0
+    avg_words_per_sentence: float = 0.0
     text_ratio: float = 0.0  # Percentage
     readability: float = 0.0  # Flesch score
+    readability_grade: Optional[str] = None  # "Hard", "Normal", etc.
     closest_similarity_match: Optional[str] = None  # URL of closest match
     closest_similarity_score: float = 0.0  # Percentage
     no_near_duplicates: int = 0  # Count
     language: Optional[str] = None
+    spelling_errors: int = 0
+    grammar_errors: int = 0
 
     # Link Metrics
     crawl_depth: int = 0  # Clicks from start
@@ -103,16 +108,32 @@ class CrawledURL:
     link_score: float = 0.0  # 0-100 PageRank-like score
     inlinks: int = 0  # Total inlinks
     unique_inlinks: int = 0  # Unique inlinks
+    unique_js_inlinks: int = 0  # JS-discovered inlinks
     percentage_of_total: float = 0.0  # % of pages linking here
     outlinks: int = 0  # Total outlinks
     unique_outlinks: int = 0  # Unique outlinks
+    unique_js_outlinks: int = 0  # JS-discovered outlinks
     external_outlinks: int = 0  # Total external
     unique_external_outlinks: int = 0  # Unique external
+    unique_external_js_outlinks: int = 0  # JS-discovered external
 
     # Redirect Data
     redirect_uri: Optional[str] = None
     redirect_type: Optional[str] = None  # HTTP, Meta Refresh, JavaScript, HSTS
     http_version: str = "HTTP/1.1"
+    
+    # Additional link elements
+    amphtml_link: Optional[str] = None  # AMP version link
+    mobile_alternate_link: Optional[str] = None  # Mobile alternate link
+    
+    # Cookies
+    cookies: Optional[str] = None
+    
+    # Semantic similarity
+    closest_semantic_match: Optional[str] = None
+    semantic_similarity_score: float = 0.0
+    no_semantically_similar: int = 0
+    semantic_relevance_score: float = 0.0
 
     # Security Headers
     hsts: bool = False
@@ -388,12 +409,17 @@ CREATE TABLE IF NOT EXISTS urls (
 
     -- Content analysis
     word_count INTEGER DEFAULT 0,
+    sentence_count INTEGER DEFAULT 0,
+    avg_words_per_sentence REAL DEFAULT 0,
     text_ratio REAL DEFAULT 0,
     readability REAL DEFAULT 0,
+    readability_grade TEXT,
     closest_similarity_match TEXT,
     closest_similarity_score REAL DEFAULT 0,
     no_near_duplicates INTEGER DEFAULT 0,
     language TEXT,
+    spelling_errors INTEGER DEFAULT 0,
+    grammar_errors INTEGER DEFAULT 0,
 
     -- Link metrics
     crawl_depth INTEGER DEFAULT 0,
@@ -401,16 +427,32 @@ CREATE TABLE IF NOT EXISTS urls (
     link_score REAL DEFAULT 0,
     inlinks INTEGER DEFAULT 0,
     unique_inlinks INTEGER DEFAULT 0,
+    unique_js_inlinks INTEGER DEFAULT 0,
     percentage_of_total REAL DEFAULT 0,
     outlinks INTEGER DEFAULT 0,
     unique_outlinks INTEGER DEFAULT 0,
+    unique_js_outlinks INTEGER DEFAULT 0,
     external_outlinks INTEGER DEFAULT 0,
     unique_external_outlinks INTEGER DEFAULT 0,
+    unique_external_js_outlinks INTEGER DEFAULT 0,
 
     -- Redirect data
     redirect_uri TEXT,
     redirect_type TEXT,
     http_version TEXT DEFAULT 'HTTP/1.1',
+    
+    -- Additional link elements
+    amphtml_link TEXT,
+    mobile_alternate_link TEXT,
+    
+    -- Cookies
+    cookies TEXT,
+    
+    -- Semantic similarity
+    closest_semantic_match TEXT,
+    semantic_similarity_score REAL DEFAULT 0,
+    no_semantically_similar INTEGER DEFAULT 0,
+    semantic_relevance_score REAL DEFAULT 0,
 
     -- Security headers
     hsts INTEGER DEFAULT 0,

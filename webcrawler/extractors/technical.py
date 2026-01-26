@@ -66,7 +66,8 @@ class TechnicalExtractor:
             'status_code': status_code,
             'status': status_text,
             'http_version': headers.get('version', 'HTTP/1.1'),
-            'content_type': headers.get('content-type', '').split(';')[0].strip(),
+            # Include full content-type with charset (like Screaming Frog does)
+            'content_type': headers.get('content-type', '').strip(),
         }
 
         return result

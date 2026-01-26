@@ -13,6 +13,7 @@ from .models import (
     CrawledURL, ImageData, LinkData, HreflangData,
     CrawlSession, IssueReport, SQL_CREATE_TABLES
 )
+from ..utils.url_normalizer import normalize_url
 
 
 class Database:
@@ -100,6 +101,16 @@ class Database:
         if row:
             return CrawlSession.from_dict(dict(row))
         return None
+
+    def get_all_sessions(self, limit: int = 20) -> List[CrawlSession]:
+        """Get all sessions ordered by most recent"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?",
+            (limit,)
+        )
+        rows = cursor.fetchall()
+        return [CrawlSession.from_dict(dict(row)) for row in rows]
 
     def update_session(
         self,
@@ -335,15 +346,18 @@ class Database:
     # ========== Link Storage ==========
 
     def save_link(self, session_id: str, link: LinkData):
-        """Save link relationship"""
+        """Save link relationship with normalized URLs for consistent matching"""
         cursor = self.conn.cursor()
+        # Normalize both source and target URLs for consistent lookup
+        normalized_source = normalize_url(link.source_url)
+        normalized_target = normalize_url(link.target_url)
         cursor.execute("""
             INSERT INTO links (
                 session_id, source_url, target_url, anchor_text,
                 is_internal, is_nofollow, link_type
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (
-            session_id, link.source_url, link.target_url, link.anchor_text,
+            session_id, normalized_source, normalized_target, link.anchor_text,
             1 if link.is_internal else 0,
             1 if link.is_nofollow else 0,
             link.link_type
@@ -356,24 +370,35 @@ class Database:
         source_url: Optional[str] = None,
         target_url: Optional[str] = None
     ) -> List[LinkData]:
-        """Get links by source or target URL"""
+        """Get links by source or target URL (uses normalized URL for lookup)"""
         cursor = self.conn.cursor()
 
         if source_url:
+            # Normalize source URL for consistent lookup
+            normalized_source = normalize_url(source_url)
             cursor.execute(
                 "SELECT * FROM links WHERE session_id = ? AND source_url = ?",
-                (session_id, source_url)
+                (session_id, normalized_source)
             )
         elif target_url:
+            # Normalize target URL for consistent lookup
+            normalized_target = normalize_url(target_url)
             cursor.execute(
                 "SELECT * FROM links WHERE session_id = ? AND target_url = ?",
-                (session_id, target_url)
+                (session_id, normalized_target)
             )
         else:
             cursor.execute("SELECT * FROM links WHERE session_id = ?", (session_id,))
 
         rows = cursor.fetchall()
-        return [LinkData(**dict(row)) for row in rows]
+        result = []
+        for row in rows:
+            row_dict = dict(row)
+            # Remove database-specific fields not in LinkData
+            row_dict.pop('id', None)
+            row_dict.pop('session_id', None)
+            result.append(LinkData(**row_dict))
+        return result
 
     # ========== Issue Storage ==========
 

@@ -10,9 +10,40 @@ import re
 class SEOExtractor:
     """Extract comprehensive SEO data from HTML content"""
 
-    # Pixel width estimation constants (based on Google SERP font)
-    AVG_CHAR_WIDTH = 5.5  # pixels
-    WIDE_CHAR_WIDTH = 10.0  # for uppercase and wide chars
+    # Character width table based on Arial 16px (Google SERP/Screaming Frog standard)
+    # Values calibrated against Screaming Frog reference output
+    # Reference: "HEP is on the way!" (18 chars) = 164 pixels = ~9.1 px/char avg
+    CHAR_WIDTHS = {
+        # Narrow characters (4-6px)
+        'i': 4, 'j': 6, 'l': 4, '|': 6, '!': 6, '.': 5, ',': 5, ':': 5, ';': 5,
+        "'": 4, '`': 6, 'I': 6, '1': 10, 'f': 6, 't': 6, 'r': 7,
+        
+        # Normal lowercase (10-12px)
+        'a': 10, 'b': 11, 'c': 10, 'd': 11, 'e': 10, 'g': 11, 'h': 11, 'k': 10, 'n': 11,
+        'o': 11, 'p': 11, 'q': 11, 's': 10, 'u': 11, 'v': 10, 'x': 10, 'y': 10, 'z': 10,
+        
+        # Wide lowercase (15-17px)
+        'm': 16, 'w': 15,
+        
+        # Uppercase letters (11-15px)
+        'A': 13, 'B': 13, 'C': 14, 'D': 14, 'E': 12, 'F': 11, 'G': 15, 'H': 14, 'J': 10,
+        'K': 13, 'L': 11, 'N': 14, 'O': 15, 'P': 12, 'Q': 15, 'R': 14, 'S': 12, 'T': 12,
+        'U': 14, 'V': 13, 'X': 12, 'Y': 12, 'Z': 12,
+        
+        # Wide uppercase (16-18px)
+        'M': 16, 'W': 18,
+        
+        # Numbers (10px average)
+        '0': 10, '2': 10, '3': 10, '4': 10, '5': 10, '6': 10, '7': 10, '8': 10, '9': 10,
+        
+        # Special characters
+        ' ': 5, '-': 7, '_': 10, '/': 6, '\\': 6, '(': 6, ')': 6, '[': 6, ']': 6,
+        '{': 7, '}': 7, '<': 10, '>': 10, '+': 10, '=': 10, '*': 8, '&': 14, '@': 18,
+        '#': 10, '$': 10, '%': 17, '^': 9, '~': 10, '?': 10, '"': 8,
+        # Extended characters
+        '–': 10, '—': 16, ''': 4, ''': 4, '"': 8, '"': 8, '…': 15, '•': 8,
+    }
+    DEFAULT_CHAR_WIDTH = 10  # fallback for unknown characters
 
     def __init__(self):
         pass
@@ -110,7 +141,7 @@ class SEOExtractor:
             desc_1 = descriptions[0].get('content', '').strip()
             result['meta_description_1'] = desc_1
             result['meta_description_1_length'] = len(desc_1)
-            result['meta_description_1_pixel_width'] = self._calculate_pixel_width(desc_1)
+            result['meta_description_1_pixel_width'] = self._calculate_pixel_width(desc_1, is_description=True)
 
             # Second description if exists
             if len(descriptions) > 1:
@@ -269,21 +300,26 @@ class SEOExtractor:
 
         return result
 
-    def _calculate_pixel_width(self, text: str) -> int:
+    def _calculate_pixel_width(self, text: str, is_description: bool = False) -> int:
         """
         Estimate pixel width for SERP display
-        Based on Google's SERP font (Roboto)
+        Based on Arial font character widths (matches Screaming Frog)
+        
+        Args:
+            text: The text to measure
+            is_description: If True, uses meta description scale (smaller font)
         """
         if not text:
             return 0
 
         width = 0
         for char in text:
-            if char.isupper() or char in 'mwMW':
-                width += self.WIDE_CHAR_WIDTH
-            else:
-                width += self.AVG_CHAR_WIDTH
+            width += self.CHAR_WIDTHS.get(char, self.DEFAULT_CHAR_WIDTH)
 
+        # Meta descriptions use smaller font (roughly 72% of title size in SERPs)
+        if is_description:
+            width = int(width * 0.72)
+        
         return int(width)
 
     def analyze_title_issues(self, data: Dict[str, Any]) -> List[str]:
@@ -364,8 +400,20 @@ class SEOExtractor:
 
         Returns: (indexability, reason)
         - indexability: "Indexable" or "Non-Indexable"
-        - reason: None if indexable, otherwise the reason (e.g., "noindex", "canonicalised")
+        - reason: None if indexable, otherwise the reason (e.g., "noindex", "Redirected")
         """
+        # Check status code - redirects are non-indexable
+        status_code = data.get('status_code', 200)
+        if status_code and 300 <= status_code < 400:
+            return ('Non-Indexable', 'Redirected')
+        
+        # Check for client/server errors
+        if status_code and status_code >= 400:
+            if status_code < 500:
+                return ('Non-Indexable', f'Client Error ({status_code})')
+            else:
+                return ('Non-Indexable', f'Server Error ({status_code})')
+        
         # Check meta robots for noindex
         meta_robots_1 = (data.get('meta_robots_1') or '').lower()
         meta_robots_2 = (data.get('meta_robots_2') or '').lower()

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Crawler - SEO Spider Tool</title>
+    <title>🐸 Yelling Frog - SEO Spider</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
     <style>
@@ -25,15 +25,55 @@
 <body class="bg-gray-50">
     <div x-data="crawlerApp()" x-cloak>
         <!-- Header -->
-        <div class="bg-blue-600 text-white shadow-lg">
+        <div class="bg-green-600 text-white shadow-lg">
             <div class="container mx-auto px-4 py-6">
-                <h1 class="text-3xl font-bold">🕷️ Web Crawler - SEO Spider</h1>
-                <p class="text-blue-100 mt-1">Complete Screaming Frog Clone with ALL Features</p>
+                <h1 class="text-3xl font-bold">🐸 Yelling Frog</h1>
+                <p class="text-green-100 mt-1">SEO Spider Tool</p>
             </div>
         </div>
 
         <!-- Main Container -->
         <div class="container mx-auto px-4 py-8">
+
+            <!-- Crawl History -->
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-8" x-show="crawlHistory.length > 0">
+                <h2 class="text-2xl font-bold mb-4">📋 Crawl History</h2>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full">
+                        <thead>
+                            <tr class="bg-gray-50">
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-600">URL</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-600">Status</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-600">URLs</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-600">Date</th>
+                                <th class="px-4 py-2 text-left text-sm font-medium text-gray-600">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="crawl in crawlHistory" :key="crawl.session_id">
+                                <tr class="border-t hover:bg-gray-50">
+                                    <td class="px-4 py-2 text-sm truncate max-w-xs" x-text="crawl.start_url"></td>
+                                    <td class="px-4 py-2">
+                                        <span 
+                                            class="px-2 py-1 text-xs rounded-full"
+                                            :class="crawl.status === 'completed' ? 'bg-green-100 text-green-800' : crawl.status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'"
+                                            x-text="crawl.status"
+                                        ></span>
+                                    </td>
+                                    <td class="px-4 py-2 text-sm" x-text="crawl.crawled_urls"></td>
+                                    <td class="px-4 py-2 text-sm" x-text="new Date(crawl.started_at).toLocaleString()"></td>
+                                    <td class="px-4 py-2">
+                                        <button 
+                                            @click="loadCrawl(crawl.session_id)"
+                                            class="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                                        >Load</button>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
             <!-- Start Crawl Form -->
             <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
@@ -47,7 +87,7 @@
                                 type="url"
                                 x-model="startUrl"
                                 placeholder="https://example.com"
-                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                                 required
                             >
                         </div>
@@ -59,7 +99,7 @@
                                 x-model.number="maxUrls"
                                 min="1"
                                 max="100000"
-                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                             >
                         </div>
 
@@ -71,7 +111,7 @@
                                 min="0.1"
                                 max="10"
                                 step="0.1"
-                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                             >
                         </div>
 
@@ -79,7 +119,7 @@
                             <label class="block text-sm font-medium text-gray-700 mb-2">Respect robots.txt</label>
                             <select
                                 x-model="respectRobots"
-                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                             >
                                 <option value="true">Yes</option>
                                 <option value="false">No</option>
@@ -90,7 +130,7 @@
                     <button
                         type="submit"
                         :disabled="crawling"
-                        class="w-full md:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        class="w-full md:w-auto px-6 py-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                     >
                         <span x-show="!crawling">🚀 Start Crawl</span>
                         <span x-show="crawling" class="flex items-center justify-center">
@@ -106,7 +146,7 @@
                 <h2 class="text-2xl font-bold mb-4">Crawl Status</h2>
 
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                    <div class="bg-blue-50 p-4 rounded-lg">
+                    <div class="bg-green-50 p-4 rounded-lg">
                         <div class="text-sm text-gray-600">Status</div>
                         <div class="text-2xl font-bold" x-text="status"></div>
                     </div>
@@ -130,7 +170,7 @@
                 <!-- Progress Bar -->
                 <div class="w-full bg-gray-200 rounded-full h-4 mb-6">
                     <div
-                        class="bg-blue-600 h-4 rounded-full transition-all duration-300"
+                        class="bg-green-600 h-4 rounded-full transition-all duration-300"
                         :style="`width: ${progressPercentage}%`"
                     ></div>
                 </div>
@@ -153,7 +193,7 @@
 
                     <button
                         @click="exportExcel"
-                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                     >
                         📑 Export Excel
                     </button>
@@ -167,8 +207,8 @@
                 <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
                     <button
                         @click="applyFilter(null)"
-                        :class="currentFilter === null ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'"
-                        class="px-3 py-2 rounded-lg text-sm hover:bg-blue-500 hover:text-white"
+                        :class="currentFilter === null ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700'"
+                        class="px-3 py-2 rounded-lg text-sm hover:bg-green-500 hover:text-white"
                     >
                         All URLs
                     </button>
@@ -176,8 +216,8 @@
                     <template x-for="filter in filters" :key="filter.code">
                         <button
                             @click="applyFilter(filter.code)"
-                            :class="currentFilter === filter.code ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'"
-                            class="px-3 py-2 rounded-lg text-sm hover:bg-blue-500 hover:text-white truncate"
+                            :class="currentFilter === filter.code ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700'"
+                            class="px-3 py-2 rounded-lg text-sm hover:bg-green-500 hover:text-white truncate"
                             x-text="filter.name"
                         ></button>
                     </template>
@@ -338,9 +378,31 @@
                 pollInterval: null,
                 websocket: null,
 
+                // History
+                crawlHistory: [],
+
                 async init() {
-                    // Load available filters
+                    // Load available filters and history
                     await this.loadFilters();
+                    await this.loadHistory();
+                },
+
+                async loadHistory() {
+                    try {
+                        const response = await fetch('/api/sessions?limit=10');
+                        const data = await response.json();
+                        this.crawlHistory = data.sessions;
+                    } catch (error) {
+                        console.error('Failed to load history:', error);
+                    }
+                },
+
+                async loadCrawl(sessionId) {
+                    this.sessionId = sessionId;
+                    this.status = 'loading';
+                    await this.updateStatus();
+                    await this.loadUrls();
+                    await this.loadStats();
                 },
 
                 async loadFilters() {
@@ -401,13 +463,17 @@
                             // Update progress from WebSocket
                             this.crawledUrls = data.crawled_urls;
                             this.totalUrls = data.total_urls;
-                            this.progressPercentage = Math.round((data.crawled_urls / this.maxUrls) * 100);
+                            // Progress based on crawled vs total found (not max)
+                            if (this.totalUrls > 0) {
+                                this.progressPercentage = Math.min(100, Math.round((data.crawled_urls / this.totalUrls) * 100));
+                            }
 
                             // Reload URLs to show new data
                             this.loadUrls();
                         } else if (data.type === 'completed') {
                             this.status = 'completed';
                             this.crawling = false;
+                            this.progressPercentage = 100; // Always 100% when completed
                             this.stopPolling();
                             this.loadStats();
                         } else if (data.type === 'error') {

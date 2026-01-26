@@ -233,8 +233,12 @@ class StructuredDataExtractor:
                 # Validate common required fields based on type
                 item_type = item.get('@type', '')
                 if item_type:
-                    validation_errors = self._validate_schema_type(item_type, item)
-                    errors.extend([f"JSON-LD item {idx}: {err}" for err in validation_errors])
+                    # Handle @type being a list (e.g., ["LocalBusiness", "Restaurant"])
+                    if isinstance(item_type, list):
+                        item_type = item_type[0] if item_type else ''
+                    if item_type:
+                        validation_errors = self._validate_schema_type(item_type, item)
+                        errors.extend([f"JSON-LD item {idx}: {err}" for err in validation_errors])
 
         # Validate Microdata
         for idx, item in enumerate(structured_data.get('microdata', [])):
@@ -248,7 +252,7 @@ class StructuredDataExtractor:
             'has_warnings': bool(warnings),
         }
 
-    def _validate_schema_type(self, schema_type: str, data: Dict[str, Any]) -> List[str]:
+    def _validate_schema_type(self, schema_type, data: Dict[str, Any]) -> List[str]:
         """
         Validate required fields for common Schema.org types
 
@@ -256,6 +260,12 @@ class StructuredDataExtractor:
             List of error messages
         """
         errors = []
+        
+        # Ensure schema_type is a string (could be list from JSON-LD)
+        if isinstance(schema_type, list):
+            schema_type = schema_type[0] if schema_type else ''
+        if not isinstance(schema_type, str):
+            return errors
 
         # Define required fields for common types
         required_fields = {

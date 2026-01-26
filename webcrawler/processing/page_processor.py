@@ -15,6 +15,7 @@ from ..extractors.structured_data import StructuredDataExtractor
 from ..extractors.content import ContentAnalyzer
 from ..storage.models import CrawledURL, ImageData, LinkData
 from ..storage.database import Database
+from ..utils.url_normalizer import normalize_url
 
 
 class PageProcessor:
@@ -73,9 +74,12 @@ class PageProcessor:
         """
         start_time = time.time()
 
-        # Create URL data object
+        # Normalize URL for consistent storage and lookup
+        normalized_url = normalize_url(url)
+        
+        # Create URL data object with normalized URL
         url_data = CrawledURL(
-            url=url,
+            url=normalized_url,
             crawled_at=datetime.now(),
             crawl_depth=crawl_depth
         )
@@ -87,11 +91,15 @@ class PageProcessor:
 
         # ========== Technical Data ==========
         # Performance metrics
+        # Calculate actual HTML size for both size and transferred
+        html_size = len(html.encode('utf-8')) if html else 0
+        # Use Content-Length if available, otherwise use actual HTML size
+        size_bytes = int(headers.get('content-length', 0)) or html_size
         perf_data = self.technical_extractor.extract_performance_metrics(
             response_time=response_time,
             ttfb=ttfb,
-            size_bytes=int(headers.get('content-length', 0)),
-            transferred_bytes=len(html.encode('utf-8')) if html else 0,
+            size_bytes=size_bytes,
+            transferred_bytes=html_size,
             headers=headers
         )
         url_data.response_time = perf_data['response_time']
@@ -198,8 +206,11 @@ class PageProcessor:
             # ========== Content Analysis ==========
             content_data = self.content_analyzer.extract_content_metrics(html, url)
             url_data.word_count = content_data['word_count']
+            url_data.sentence_count = content_data.get('sentence_count', 0)
+            url_data.avg_words_per_sentence = content_data.get('avg_words_per_sentence', 0)
             url_data.text_ratio = content_data['text_ratio']
             url_data.readability = content_data['readability']
+            url_data.readability_grade = content_data.get('readability_grade', '')
             url_data.hash = content_data['hash']
 
             # ========== Link Extraction ==========
@@ -271,28 +282,31 @@ class PageProcessor:
         return url_data
 
     def _store_links(self, source_url: str, link_data: Dict[str, Any]):
-        """Store link relationships in database"""
-        # Store internal links
+        """Store link relationships in database with normalized URLs"""
+        # Normalize source URL for consistent storage
+        normalized_source = normalize_url(source_url)
+        
+        # Store internal links (targets already normalized by extractor)
         for target_url in link_data['internal_links']:
             anchor_texts = link_data['anchor_texts'].get(target_url, [])
             anchor_text = ', '.join(anchor_texts[:3]) if anchor_texts else None
 
             link = LinkData(
-                source_url=source_url,
-                target_url=target_url,
+                source_url=normalized_source,
+                target_url=target_url,  # Already normalized by extractor
                 anchor_text=anchor_text,
                 is_internal=True,
                 link_type='href'
             )
             self.db.save_link(self.session_id, link)
 
-        # Store external links
+        # Store external links (not normalized - external URLs kept as-is)
         for target_url in link_data['external_links']:
             anchor_texts = link_data['anchor_texts'].get(target_url, [])
             anchor_text = ', '.join(anchor_texts[:3]) if anchor_texts else None
 
             link = LinkData(
-                source_url=source_url,
+                source_url=normalized_source,
                 target_url=target_url,
                 anchor_text=anchor_text,
                 is_internal=False,
@@ -438,8 +452,8 @@ class PageProcessor:
             url_data.unique_inlinks = inlink_data['unique_inlinks']
             url_data.percentage_of_total = inlink_data['percentage_of_total']
 
-            # Set link score
-            url_data.link_score = round(link_scores.get(url_data.url, 0), 2)
+            # Set link score (use helper method that handles URL normalization)
+            url_data.link_score = self.link_metrics.get_link_score(url_data.url, link_scores)
 
             # Save updated data
             self.db.save_url(self.session_id, url_data)
@@ -449,9 +463,42 @@ class PageProcessor:
         orphans = self.link_metrics.find_orphan_pages(all_url_set)
 
         print(f"Link metrics calculated: {len(orphans)} orphan pages found")
+        
+        # Find near duplicates based on content hash
+        self._calculate_near_duplicates(all_urls)
 
         return {
             'total_pages': len(all_urls),
             'orphan_pages': len(orphans),
             'orphan_urls': orphans
         }
+    
+    def _calculate_near_duplicates(self, all_urls):
+        """Find exact and near duplicates based on content hash"""
+        # Group URLs by content hash
+        hash_to_urls = {}
+        for url_data in all_urls:
+            if url_data.hash and url_data.content_type and 'text/html' in url_data.content_type:
+                if url_data.hash not in hash_to_urls:
+                    hash_to_urls[url_data.hash] = []
+                hash_to_urls[url_data.hash].append(url_data.url)
+        
+        # Find duplicates (same hash = exact duplicate)
+        duplicates_found = 0
+        for content_hash, urls in hash_to_urls.items():
+            if len(urls) > 1:
+                # These are exact duplicates
+                for url in urls:
+                    # Find this URL's data
+                    for url_data in all_urls:
+                        if url_data.url == url:
+                            # Set closest match as first other URL with same hash
+                            other_urls = [u for u in urls if u != url]
+                            if other_urls:
+                                url_data.closest_similarity_match = other_urls[0]
+                                url_data.no_near_duplicates = len(other_urls)
+                                self.db.save_url(self.session_id, url_data)
+                                duplicates_found += 1
+        
+        if duplicates_found > 0:
+            print(f"Near duplicates: {duplicates_found} pages with duplicates found")

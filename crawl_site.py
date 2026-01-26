@@ -15,6 +15,7 @@ from webcrawler.spider.crawler import WebCrawler
 from webcrawler.storage.database import Database
 from webcrawler.processing.page_processor import PageProcessor
 from webcrawler.storage.export import DataExporter
+from webcrawler.storage.screaming_frog_exporter import ScreamingFrogExporter
 
 
 async def crawl_site(url: str, max_pages: int = 50):
@@ -99,6 +100,11 @@ async def crawl_site(url: str, max_pages: int = 50):
     print(f"Pages Failed: {stats.get('pages_failed', 0)}")
     print(f"Duration: {stats.get('end_time', 0) - stats.get('start_time', 0):.1f}s")
     
+    # Post-process link metrics (calculate inlinks, link scores)
+    print("\nCalculating link metrics...")
+    link_stats = processor.post_process_link_metrics()
+    print(f"Link metrics complete: {link_stats['orphan_pages']} orphan pages found")
+    
     # Get all crawled URLs for analysis
     urls = db.get_all_urls(session_id)
     
@@ -147,20 +153,25 @@ async def crawl_site(url: str, max_pages: int = 50):
     
     # Export results
     exporter = DataExporter(db)
+    sf_exporter = ScreamingFrogExporter(db)
+    
     csv_path = f"/app/data/crawl_{session_id[:8]}.csv"
+    sf_csv_path = f"/app/data/crawl_{session_id[:8]}_screaming_frog.csv"
     json_path = f"/app/data/crawl_{session_id[:8]}.json"
     
     try:
-        exporter.export_csv(session_id, csv_path)
-        exporter.export_json(session_id, json_path)
+        exporter.export_to_json(session_id, json_path)
+        sf_exporter.export_csv(session_id, sf_csv_path)
         print(f"\n📁 Exports:")
-        print(f"  CSV: {csv_path}")
+        print(f"  Screaming Frog CSV: {sf_csv_path}")
         print(f"  JSON: {json_path}")
     except Exception as e:
         print(f"\nExport error: {e}")
+        import traceback
+        traceback.print_exc()
     
     # Update session
-    db.update_session_status(session_id, "completed", len(urls))
+    db.update_session(session_id, status="completed", total_urls=len(urls))
     
     print(f"\n{'='*70}")
     print(f"Database: {db_path}")
@@ -173,7 +184,14 @@ async def crawl_site(url: str, max_pages: int = 50):
 
 
 if __name__ == "__main__":
-    url = sys.argv[1] if len(sys.argv) > 1 else "https://example.com"
-    max_pages = int(sys.argv[2]) if len(sys.argv) > 2 else 30
+    import argparse
     
-    asyncio.run(crawl_site(url, max_pages))
+    parser = argparse.ArgumentParser(description='Crawl a website and generate SEO report')
+    parser.add_argument('url', nargs='?', default='https://example.com', help='URL to crawl')
+    parser.add_argument('--max-pages', type=int, default=30, help='Maximum pages to crawl')
+    parser.add_argument('--output', choices=['csv', 'json', 'both'], default='both', 
+                        help='Output format (csv=Screaming Frog format)')
+    
+    args = parser.parse_args()
+    
+    asyncio.run(crawl_site(args.url, args.max_pages))

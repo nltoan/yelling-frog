@@ -14,6 +14,7 @@ import json
 
 from ..storage.database import Database
 from ..storage.export import DataExporter
+from ..storage.screaming_frog_exporter import ScreamingFrogExporter
 from ..spider.crawler import WebCrawler
 from ..processing.page_processor import PageProcessor
 from ..analysis.duplicates import detect_duplicates_in_database
@@ -37,9 +38,28 @@ app.add_middleware(
 )
 
 # Global state
-database = Database("/app/data/crawl_data.db")
+_base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_data_dir = os.environ.get("CRAWLER_DATA_DIR", os.path.join(_base_dir, "data"))
+os.makedirs(_data_dir, exist_ok=True)
+database = Database(os.path.join(_data_dir, "crawl_data.db"))
 active_crawlers = {}  # session_id -> crawler instance
 websocket_connections: Dict[str, List[WebSocket]] = {}  # session_id -> list of websockets
+
+# On startup, mark any orphaned "running" sessions as stopped (from server restart)
+def cleanup_orphaned_sessions():
+    try:
+        cursor = database.conn.cursor()
+        cursor.execute(
+            "UPDATE sessions SET status = 'stopped' WHERE status = 'running'"
+        )
+        database.conn.commit()
+        count = cursor.rowcount
+        if count > 0:
+            print(f"Cleaned up {count} orphaned running sessions")
+    except Exception as e:
+        print(f"Failed to cleanup orphaned sessions: {e}")
+
+cleanup_orphaned_sessions()
 
 
 # ========== Request/Response Models ==========
@@ -104,6 +124,26 @@ async def health_check():
     return {"status": "healthy"}
 
 
+@app.get("/sessions")
+async def list_sessions(limit: int = Query(20, ge=1, le=100)):
+    """List all crawl sessions (history)"""
+    sessions = database.get_all_sessions(limit=limit)
+    return {
+        "sessions": [
+            {
+                "session_id": s.session_id,
+                "start_url": s.start_url,
+                "status": s.status,
+                "crawled_urls": s.crawled_urls,
+                "total_urls": s.total_urls,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+                "completed_at": s.completed_at.isoformat() if s.completed_at else None
+            }
+            for s in sessions
+        ]
+    }
+
+
 # ========== Crawl Control Endpoints ==========
 
 @app.post("/crawl/start", response_model=CrawlStatusResponse)
@@ -132,7 +172,7 @@ async def start_crawl(request: CrawlStartRequest, background_tasks: BackgroundTa
         max_depth=request.max_depth or 10,
         max_urls=request.max_urls,
         requests_per_second=request.requests_per_second,
-        use_playwright=False,  # TODO: Make configurable
+        use_playwright=True,  # Enable Playwright for proper JS rendering
         user_agent=request.user_agent,
         respect_robots=request.respect_robots
     )
@@ -215,7 +255,7 @@ async def run_crawl(session_id: str, crawler: WebCrawler):
                 "url": url,
                 "status_code": page_result.status_code if page_result.status_code else None,
                 "crawled_urls": stats['pages_crawled'],
-                "total_urls": stats['url_manager']['total_urls'],
+                "total_urls": stats['url_manager']['total_seen'],
                 "failed_urls": stats['pages_failed']
             })
 
@@ -575,14 +615,20 @@ async def get_issues(session_id: str):
 @app.get("/export/{session_id}/csv")
 async def export_csv(
     session_id: str,
-    filter: Optional[str] = None
+    filter: Optional[str] = None,
+    format: Optional[str] = "screaming_frog"
 ):
-    """Export data to CSV"""
-    exporter = DataExporter(database)
-
+    """Export data to CSV (Screaming Frog format by default)"""
     output_path = f"/tmp/export_{session_id}.csv"
-
-    count = exporter.export_to_csv(session_id, output_path, filter_name=filter)
+    
+    if format == "screaming_frog":
+        # Use Screaming Frog exporter (exact 72-column format)
+        exporter = ScreamingFrogExporter(database)
+        count = exporter.export_csv(session_id, output_path)
+    else:
+        # Use basic exporter
+        exporter = DataExporter(database)
+        count = exporter.export_to_csv(session_id, output_path, filter_name=filter)
 
     if count == 0:
         raise HTTPException(status_code=404, detail="No data to export")
@@ -590,7 +636,7 @@ async def export_csv(
     return FileResponse(
         output_path,
         media_type="text/csv",
-        filename=f"crawl_{session_id}.csv"
+        filename=f"crawl_{session_id}_screaming_frog.csv"
     )
 
 

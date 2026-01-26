@@ -7,13 +7,15 @@ from urllib.parse import urlparse, urljoin, urldefrag
 from collections import deque
 import re
 
+from ..utils.url_normalizer import normalize_url as util_normalize_url, normalize_domain
+
 
 class URLManager:
     """Manages URL queue with deduplication and priority"""
     
     def __init__(self, base_url: str, max_depth: int = 10, max_urls: int = 10000):
         self.base_url = base_url
-        self.base_domain = urlparse(base_url).netloc
+        self.base_domain = self._normalize_domain(urlparse(base_url).netloc)
         self.max_depth = max_depth
         self.max_urls = max_urls
         
@@ -35,22 +37,19 @@ class URLManager:
         # Lock for thread safety
         self._lock = asyncio.Lock()
     
+    def _normalize_domain(self, domain: str) -> str:
+        """Normalize domain by removing www. prefix for consistent matching"""
+        return normalize_domain(domain)
+    
     def normalize_url(self, url: str) -> str:
-        """Normalize URL by removing fragments and cleaning"""
-        # Remove fragment
-        url, _ = urldefrag(url)
-        
-        # Remove trailing slash for consistency (except for root)
-        parsed = urlparse(url)
-        if parsed.path != '/' and parsed.path.endswith('/'):
-            url = url.rstrip('/')
-        
-        return url
+        """Normalize URL by removing fragments, www prefix, and trailing slashes"""
+        return util_normalize_url(url)
     
     def is_internal(self, url: str) -> bool:
-        """Check if URL belongs to the base domain"""
+        """Check if URL belongs to the base domain (handles www/non-www)"""
         parsed = urlparse(url)
-        return parsed.netloc == self.base_domain or parsed.netloc == ''
+        url_domain = normalize_domain(parsed.netloc)
+        return url_domain == self.base_domain or parsed.netloc == ''
     
     def should_crawl(self, url: str) -> bool:
         """Determine if URL should be crawled based on patterns"""
