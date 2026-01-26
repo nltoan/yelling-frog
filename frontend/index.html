@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Crawler - SEO Spider Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div x-data="crawlerApp()" x-cloak>
+        <!-- Header -->
+        <div class="bg-blue-600 text-white shadow-lg">
+            <div class="container mx-auto px-4 py-6">
+                <h1 class="text-3xl font-bold">🕷️ Web Crawler - SEO Spider</h1>
+                <p class="text-blue-100 mt-1">Complete Screaming Frog Clone with ALL Features</p>
+            </div>
+        </div>
+
+        <!-- Main Container -->
+        <div class="container mx-auto px-4 py-8">
+
+            <!-- Start Crawl Form -->
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h2 class="text-2xl font-bold mb-4">Start New Crawl</h2>
+
+                <form @submit.prevent="startCrawl" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Start URL</label>
+                            <input
+                                type="url"
+                                x-model="startUrl"
+                                placeholder="https://example.com"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                required
+                            >
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Max URLs</label>
+                            <input
+                                type="number"
+                                x-model.number="maxUrls"
+                                min="1"
+                                max="100000"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Requests/Second</label>
+                            <input
+                                type="number"
+                                x-model.number="requestsPerSecond"
+                                min="0.1"
+                                max="10"
+                                step="0.1"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Respect robots.txt</label>
+                            <select
+                                x-model="respectRobots"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button
+                        type="submit"
+                        :disabled="crawling"
+                        class="w-full md:w-auto px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                        <span x-show="!crawling">🚀 Start Crawl</span>
+                        <span x-show="crawling" class="flex items-center justify-center">
+                            <span class="spinner mr-2"></span>
+                            Crawling...
+                        </span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Crawl Status -->
+            <div x-show="sessionId" class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h2 class="text-2xl font-bold mb-4">Crawl Status</h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-blue-50 p-4 rounded-lg">
+                        <div class="text-sm text-gray-600">Status</div>
+                        <div class="text-2xl font-bold" x-text="status"></div>
+                    </div>
+
+                    <div class="bg-green-50 p-4 rounded-lg">
+                        <div class="text-sm text-gray-600">URLs Crawled</div>
+                        <div class="text-2xl font-bold" x-text="crawledUrls"></div>
+                    </div>
+
+                    <div class="bg-purple-50 p-4 rounded-lg">
+                        <div class="text-sm text-gray-600">Total Found</div>
+                        <div class="text-2xl font-bold" x-text="totalUrls"></div>
+                    </div>
+
+                    <div class="bg-orange-50 p-4 rounded-lg">
+                        <div class="text-sm text-gray-600">Progress</div>
+                        <div class="text-2xl font-bold" x-text="progressPercentage + '%'"></div>
+                    </div>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="w-full bg-gray-200 rounded-full h-4 mb-6">
+                    <div
+                        class="bg-blue-600 h-4 rounded-full transition-all duration-300"
+                        :style="`width: ${progressPercentage}%`"
+                    ></div>
+                </div>
+
+                <!-- Export Buttons -->
+                <div class="flex gap-4">
+                    <button
+                        @click="exportCSV"
+                        class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                    >
+                        📊 Export CSV
+                    </button>
+
+                    <button
+                        @click="exportJSON"
+                        class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                    >
+                        📄 Export JSON
+                    </button>
+
+                    <button
+                        @click="exportExcel"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                        📑 Export Excel
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div x-show="sessionId" class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h2 class="text-2xl font-bold mb-4">Filters & Issues</h2>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                    <button
+                        @click="applyFilter(null)"
+                        :class="currentFilter === null ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'"
+                        class="px-3 py-2 rounded-lg text-sm hover:bg-blue-500 hover:text-white"
+                    >
+                        All URLs
+                    </button>
+
+                    <template x-for="filter in filters" :key="filter.code">
+                        <button
+                            @click="applyFilter(filter.code)"
+                            :class="currentFilter === filter.code ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'"
+                            class="px-3 py-2 rounded-lg text-sm hover:bg-blue-500 hover:text-white truncate"
+                            x-text="filter.name"
+                        ></button>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Statistics -->
+            <div x-show="sessionId && stats" class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                <h2 class="text-2xl font-bold mb-4">Statistics</h2>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <h3 class="font-semibold mb-2">Indexability</h3>
+                        <div class="space-y-1">
+                            <div class="flex justify-between">
+                                <span>Indexable:</span>
+                                <span class="font-bold text-green-600" x-text="stats?.indexable_count || 0"></span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Non-Indexable:</span>
+                                <span class="font-bold text-red-600" x-text="stats?.non_indexable_count || 0"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="font-semibold mb-2">Performance</h3>
+                        <div class="space-y-1">
+                            <div class="flex justify-between">
+                                <span>Avg Response Time:</span>
+                                <span class="font-bold" x-text="(stats?.avg_response_time || 0).toFixed(3) + 's'"></span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>Avg Word Count:</span>
+                                <span class="font-bold" x-text="stats?.avg_word_count || 0"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="font-semibold mb-2">Status Codes</h3>
+                        <div class="space-y-1" x-show="stats?.status_codes">
+                            <template x-for="(count, code) in stats?.status_codes" :key="code">
+                                <div class="flex justify-between">
+                                    <span x-text="code"></span>
+                                    <span class="font-bold" x-text="count"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- URLs Table -->
+            <div x-show="sessionId" class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-2xl font-bold mb-4">
+                    Crawled URLs
+                    <span class="text-sm text-gray-500" x-text="'(' + urls.length + ')'"></span>
+                </h2>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">URL</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">H1</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Words</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Indexability</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issues</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <template x-for="url in urls" :key="url.url">
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-4 py-3 text-sm">
+                                        <a :href="url.url" target="_blank" class="text-blue-600 hover:underline truncate block max-w-xs" x-text="url.url"></a>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm">
+                                        <span
+                                            :class="{
+                                                'bg-green-100 text-green-800': url.status_code >= 200 && url.status_code < 300,
+                                                'bg-yellow-100 text-yellow-800': url.status_code >= 300 && url.status_code < 400,
+                                                'bg-red-100 text-red-800': url.status_code >= 400
+                                            }"
+                                            class="px-2 py-1 rounded text-xs font-semibold"
+                                            x-text="url.status_code"
+                                        ></span>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm truncate max-w-xs" x-text="url.title || '-'"></td>
+                                    <td class="px-4 py-3 text-sm truncate max-w-xs" x-text="url.h1 || '-'"></td>
+                                    <td class="px-4 py-3 text-sm" x-text="url.word_count"></td>
+                                    <td class="px-4 py-3 text-sm">
+                                        <span
+                                            :class="url.indexability === 'Indexable' ? 'text-green-600' : 'text-red-600'"
+                                            x-text="url.indexability"
+                                        ></span>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm">
+                                        <span
+                                            x-show="url.issues && url.issues.length > 0"
+                                            class="bg-red-100 text-red-800 px-2 py-1 rounded text-xs"
+                                            x-text="url.issues.length"
+                                        ></span>
+                                    </td>
+                                </tr>
+                            </template>
+
+                            <tr x-show="urls.length === 0">
+                                <td colspan="7" class="px-4 py-8 text-center text-gray-500">
+                                    No URLs crawled yet. Start a crawl to see results.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Load More Button -->
+                <div class="mt-4 text-center" x-show="urls.length > 0">
+                    <button
+                        @click="loadMore"
+                        class="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                    >
+                        Load More
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function crawlerApp() {
+            return {
+                // Form data
+                startUrl: 'https://example.com',
+                maxUrls: 100,
+                requestsPerSecond: 1.0,
+                respectRobots: 'true',
+
+                // Crawl state
+                sessionId: null,
+                crawling: false,
+                status: 'idle',
+                crawledUrls: 0,
+                totalUrls: 0,
+                progressPercentage: 0,
+
+                // Data
+                urls: [],
+                filters: [],
+                currentFilter: null,
+                stats: null,
+                offset: 0,
+                limit: 100,
+
+                // Poll interval and WebSocket
+                pollInterval: null,
+                websocket: null,
+
+                async init() {
+                    // Load available filters
+                    await this.loadFilters();
+                },
+
+                async loadFilters() {
+                    try {
+                        const response = await fetch('/api/filters');
+                        const data = await response.json();
+                        this.filters = data.filters.slice(0, 20); // Show first 20
+                    } catch (error) {
+                        console.error('Failed to load filters:', error);
+                    }
+                },
+
+                async startCrawl() {
+                    this.crawling = true;
+
+                    try {
+                        const response = await fetch('/api/crawl/start', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                start_url: this.startUrl,
+                                max_urls: this.maxUrls,
+                                requests_per_second: this.requestsPerSecond,
+                                respect_robots: this.respectRobots === 'true'
+                            })
+                        });
+
+                        const data = await response.json();
+                        this.sessionId = data.session_id;
+
+                        // Connect to WebSocket for real-time updates
+                        this.connectWebSocket();
+
+                        // Also poll for stats and URLs periodically
+                        this.startPolling();
+
+                    } catch (error) {
+                        console.error('Failed to start crawl:', error);
+                        alert('Failed to start crawl. Check console for details.');
+                        this.crawling = false;
+                    }
+                },
+
+                connectWebSocket() {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${protocol}//${window.location.host}/api/ws/${this.sessionId}`;
+
+                    this.websocket = new WebSocket(wsUrl);
+
+                    this.websocket.onopen = () => {
+                        console.log('WebSocket connected');
+                    };
+
+                    this.websocket.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+
+                        if (data.type === 'progress') {
+                            // Update progress from WebSocket
+                            this.crawledUrls = data.crawled_urls;
+                            this.totalUrls = data.total_urls;
+                            this.progressPercentage = Math.round((data.crawled_urls / this.maxUrls) * 100);
+
+                            // Reload URLs to show new data
+                            this.loadUrls();
+                        } else if (data.type === 'completed') {
+                            this.status = 'completed';
+                            this.crawling = false;
+                            this.stopPolling();
+                            this.loadStats();
+                        } else if (data.type === 'error') {
+                            this.status = 'failed';
+                            this.crawling = false;
+                            this.stopPolling();
+                            alert('Crawl failed: ' + data.message);
+                        }
+                    };
+
+                    this.websocket.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                    };
+
+                    this.websocket.onclose = () => {
+                        console.log('WebSocket closed');
+                    };
+                },
+
+                startPolling() {
+                    // Poll less frequently since WebSocket handles real-time updates
+                    this.pollInterval = setInterval(async () => {
+                        await this.loadStats();
+
+                        // Stop polling if crawl is complete
+                        if (this.status === 'completed' || this.status === 'failed') {
+                            this.stopPolling();
+                            this.crawling = false;
+                        }
+                    }, 5000);
+                },
+
+                stopPolling() {
+                    if (this.pollInterval) {
+                        clearInterval(this.pollInterval);
+                        this.pollInterval = null;
+                    }
+                    if (this.websocket) {
+                        this.websocket.close();
+                        this.websocket = null;
+                    }
+                },
+
+                async updateStatus() {
+                    if (!this.sessionId) return;
+
+                    try {
+                        const response = await fetch(`/api/crawl/${this.sessionId}/status`);
+                        const data = await response.json();
+
+                        this.status = data.status;
+                        this.crawledUrls = data.crawled_urls;
+                        this.totalUrls = data.total_urls;
+                        this.progressPercentage = Math.round(data.progress_percentage);
+                    } catch (error) {
+                        console.error('Failed to update status:', error);
+                    }
+                },
+
+                async loadUrls() {
+                    if (!this.sessionId) return;
+
+                    try {
+                        const filterParam = this.currentFilter ? `&filter=${this.currentFilter}` : '';
+                        const response = await fetch(`/api/data/${this.sessionId}/urls?limit=${this.limit}&offset=${this.offset}${filterParam}`);
+                        const data = await response.json();
+
+                        if (this.offset === 0) {
+                            this.urls = data.urls;
+                        } else {
+                            this.urls = [...this.urls, ...data.urls];
+                        }
+                    } catch (error) {
+                        console.error('Failed to load URLs:', error);
+                    }
+                },
+
+                async loadStats() {
+                    if (!this.sessionId) return;
+
+                    try {
+                        const response = await fetch(`/api/data/${this.sessionId}/stats`);
+                        this.stats = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load stats:', error);
+                    }
+                },
+
+                async applyFilter(filterCode) {
+                    this.currentFilter = filterCode;
+                    this.offset = 0;
+                    await this.loadUrls();
+                },
+
+                async loadMore() {
+                    this.offset += this.limit;
+                    await this.loadUrls();
+                },
+
+                exportCSV() {
+                    const filterParam = this.currentFilter ? `?filter=${this.currentFilter}` : '';
+                    window.open(`/api/export/${this.sessionId}/csv${filterParam}`, '_blank');
+                },
+
+                exportJSON() {
+                    const filterParam = this.currentFilter ? `?filter=${this.currentFilter}` : '';
+                    window.open(`/api/export/${this.sessionId}/json${filterParam}`, '_blank');
+                },
+
+                exportExcel() {
+                    window.open(`/api/export/${this.sessionId}/excel`, '_blank');
+                }
+            }
+        }
+    </script>
+</body>
+</html>
