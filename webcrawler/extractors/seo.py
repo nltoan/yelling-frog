@@ -5,6 +5,7 @@ Extracts all SEO-related data: titles, meta descriptions, headings, directives, 
 from typing import Dict, List, Optional, Any
 from bs4 import BeautifulSoup
 import re
+from urllib.parse import urljoin
 
 
 class SEOExtractor:
@@ -85,10 +86,13 @@ class SEOExtractor:
         data.update(self._extract_directives(soup, response_headers))
 
         # Extract canonical links
-        data.update(self._extract_canonicals(soup, response_headers))
+        data.update(self._extract_canonicals(soup, url, response_headers))
 
         # Extract pagination (rel next/prev)
-        data.update(self._extract_pagination(soup, response_headers))
+        data.update(self._extract_pagination(soup, url, response_headers))
+
+        # Extract alternate SEO relationships (AMP/mobile)
+        data.update(self._extract_alternates(soup, url))
 
         # Extract meta refresh
         data.update(self._extract_meta_refresh(soup))
@@ -228,7 +232,7 @@ class SEOExtractor:
 
         return result
 
-    def _extract_canonicals(self, soup: BeautifulSoup, headers: Dict[str, str]) -> Dict[str, Any]:
+    def _extract_canonicals(self, soup: BeautifulSoup, current_url: str, headers: Dict[str, str]) -> Dict[str, Any]:
         """Extract canonical link elements"""
         result = {
             'canonical_link_element_1': None,
@@ -238,13 +242,15 @@ class SEOExtractor:
         # Extract from HTML link tags
         canonical_links = soup.find_all('link', rel=re.compile(r'canonical', re.I))
         if canonical_links:
-            result['canonical_link_element_1'] = canonical_links[0].get('href', '').strip()
+            href_1 = canonical_links[0].get('href', '').strip()
+            result['canonical_link_element_1'] = urljoin(current_url, href_1) if href_1 else None
             if len(canonical_links) > 1:
-                result['canonical_link_element_2'] = canonical_links[1].get('href', '').strip()
+                href_2 = canonical_links[1].get('href', '').strip()
+                result['canonical_link_element_2'] = urljoin(current_url, href_2) if href_2 else None
 
         return result
 
-    def _extract_pagination(self, soup: BeautifulSoup, headers: Dict[str, str]) -> Dict[str, Any]:
+    def _extract_pagination(self, soup: BeautifulSoup, current_url: str, headers: Dict[str, str]) -> Dict[str, Any]:
         """Extract rel=next and rel=prev pagination links"""
         result = {
             'rel_next_1': None,
@@ -256,23 +262,29 @@ class SEOExtractor:
         # Extract from HTML link tags
         next_link = soup.find('link', rel=re.compile(r'next', re.I))
         if next_link:
-            result['rel_next_1'] = next_link.get('href', '').strip()
+            href = next_link.get('href', '').strip()
+            result['rel_next_1'] = urljoin(current_url, href) if href else None
 
         prev_link = soup.find('link', rel=re.compile(r'prev', re.I))
         if prev_link:
-            result['rel_prev_1'] = prev_link.get('href', '').strip()
+            href = prev_link.get('href', '').strip()
+            result['rel_prev_1'] = urljoin(current_url, href) if href else None
 
         # Extract from HTTP Link headers (if available)
-        link_header = headers.get('link', '')
+        link_header = ''
+        for key, value in headers.items():
+            if key.lower() == 'link':
+                link_header = value
+                break
         if link_header:
             # Parse Link header: <url>; rel="next"
             next_match = re.search(r'<([^>]+)>;\s*rel=["\']?next["\']?', link_header, re.I)
             if next_match:
-                result['http_rel_next_1'] = next_match.group(1)
+                result['http_rel_next_1'] = urljoin(current_url, next_match.group(1))
 
             prev_match = re.search(r'<([^>]+)>;\s*rel=["\']?prev["\']?', link_header, re.I)
             if prev_match:
-                result['http_rel_prev_1'] = prev_match.group(1)
+                result['http_rel_prev_1'] = urljoin(current_url, prev_match.group(1))
 
         return result
 
@@ -297,6 +309,29 @@ class SEOExtractor:
         html_tag = soup.find('html')
         if html_tag and html_tag.get('lang'):
             result['language'] = html_tag.get('lang').strip()
+
+        return result
+
+    def _extract_alternates(self, soup: BeautifulSoup, current_url: str) -> Dict[str, Any]:
+        """Extract alternate SEO link relations such as AMP and mobile alternates."""
+        result = {
+            'amphtml_link': None,
+            'mobile_alternate_link': None,
+        }
+
+        amp_link = soup.find('link', rel=re.compile(r'amphtml', re.I))
+        if amp_link:
+            href = amp_link.get('href', '').strip()
+            result['amphtml_link'] = urljoin(current_url, href) if href else None
+
+        for link in soup.find_all('link', rel=re.compile(r'alternate', re.I)):
+            media = (link.get('media') or '').strip().lower()
+            href = (link.get('href') or '').strip()
+            if not href:
+                continue
+            if 'max-width' in media or 'handheld' in media or 'only screen' in media:
+                result['mobile_alternate_link'] = urljoin(current_url, href)
+                break
 
         return result
 

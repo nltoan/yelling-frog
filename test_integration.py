@@ -7,6 +7,7 @@ import os
 import sys
 import time
 from pathlib import Path
+import pytest
 
 # Add project to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -20,7 +21,8 @@ from webcrawler.analysis.orphans import detect_orphans_in_database
 from webcrawler.analysis.redirects import detect_redirects_in_database
 
 
-async def test_full_crawl():
+@pytest.mark.asyncio
+async def test_full_crawl(tmp_path):
     """Test a complete crawl of a website"""
     print("=" * 80)
     print("INTEGRATION TEST - Full Crawl Test")
@@ -31,11 +33,8 @@ async def test_full_crawl():
     max_urls = 20
 
     # Setup database
-    db_path = "/app/data/test_crawl.db"
-    if os.path.exists(db_path):
-        os.remove(db_path)
-
-    db = Database(db_path)
+    db_path = tmp_path / "test_crawl.db"
+    db = Database(str(db_path))
 
     # Create session
     session = db.create_session(
@@ -85,6 +84,7 @@ async def test_full_crawl():
             processor.process_page(
                 url=url,
                 html=page_result.html,
+                raw_html=page_result.raw_html,
                 status_code=page_result.status_code,
                 status_text="OK",
                 headers=page_result.headers,

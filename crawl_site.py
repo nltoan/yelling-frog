@@ -71,6 +71,7 @@ async def crawl_site(url: str, max_pages: int = 50):
             processor.process_page(
                 url=crawled_url,
                 html=page_result.html,
+                raw_html=page_result.raw_html,
                 status_code=page_result.status_code,
                 status_text="OK",
                 headers=page_result.headers,

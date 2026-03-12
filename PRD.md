@@ -261,16 +261,16 @@ Build an exact feature-complete clone of Screaming Frog SEO Spider with a web-ba
 ## ✅ Acceptance Criteria
 
 ### Must Pass Before Completion:
-1. [ ] Can crawl 1000+ page site without crashing
-2. [ ] Extracts ALL Screaming Frog equivalent data
-3. [ ] Web UI shows real-time crawl progress
-4. [ ] Can filter and sort all data tables
-5. [ ] Exports work (CSV, Excel, JSON)
-6. [ ] Respects robots.txt correctly
-7. [ ] Handles JavaScript-rendered pages
-8. [ ] All tests pass
-9. [ ] Runs entirely in Docker
-10. [ ] Documentation complete
+1. [x] Can crawl 1000+ page site without crashing (local benchmark on March 11, 2026: 1201 pages crawled, 0 failed; see `benchmarks/benchmark_1000_pages.py`)
+2. [x] Extracts ALL Screaming Frog equivalent data (latest parity matrix on March 11, 2026: 122/122 filters fully implemented; see `reports/filter_parity_matrix.md`)
+3. [x] Web UI shows real-time crawl progress
+4. [x] Can filter and sort all data tables
+5. [x] Exports work (CSV, Excel, JSON)
+6. [x] Respects robots.txt correctly
+7. [x] Handles JavaScript-rendered pages
+8. [x] All tests pass (current: 28 passed, 0 skipped)
+9. [x] Runs entirely in Docker
+10. [x] Documentation complete
 
 ---
 
@@ -278,11 +278,11 @@ Build an exact feature-complete clone of Screaming Frog SEO Spider with a web-ba
 
 | Phase | Status | Steps Done | Notes |
 |-------|--------|------------|-------|
-| Phase 1: Spider Core | 🔴 Not Started | 0/10 | |
-| Phase 2: Extractors | 🔴 Not Started | 0/10 | |
-| Phase 3: Storage | 🔴 Not Started | 0/10 | |
-| Phase 4: API | 🔴 Not Started | 0/10 | |
-| Phase 5: UI | 🔴 Not Started | 0/10 | |
+| Phase 1: Spider Core | 🟢 Complete | 10/10 | Core crawl flow running; 1000+ page local benchmark documented |
+| Phase 2: Extractors | 🟢 Complete | 10/10 | Screaming Frog filter parity validated at 122/122 |
+| Phase 3: Storage | 🟢 Complete | 10/10 | Storage, sitemap persistence, and exports validated |
+| Phase 4: API | 🟢 Complete | 10/10 | Crawl/data/analysis plus named report APIs fully implemented |
+| Phase 5: UI | 🟢 Complete | 10/10 | Filter parity synced in UI with validated report/export flows |
 
 ---
 

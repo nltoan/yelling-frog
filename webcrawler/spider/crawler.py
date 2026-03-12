@@ -3,11 +3,11 @@ Main Crawler - Core crawling engine that orchestrates all components
 """
 import asyncio
 import time
-from typing import Optional, Dict, List, Set, Callable
+from typing import Optional, Dict, List, Callable
 from urllib.parse import urljoin, urlparse
 import aiohttp
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright, Browser, Page
+from playwright.async_api import async_playwright, Browser
 
 from .url_manager import URLManager
 from .robots_parser import RobotsParser
@@ -31,8 +31,10 @@ class PageResult:
     def __init__(self, url: str):
         self.url = url
         self.status_code: Optional[int] = None
+        self.status_text: Optional[str] = None
         self.content: Optional[str] = None
         self.html: Optional[str] = None
+        self.raw_html: Optional[str] = None
         self.headers: Dict = {}
         self.redirects: List[str] = []
         self.error: Optional[str] = None
@@ -55,6 +57,7 @@ class WebCrawler:
         start_url: str,
         max_depth: int = 10,
         max_urls: int = 10000,
+        crawl_non_html: bool = False,
         requests_per_second: float = 1.0,
         use_playwright: bool = False,
         user_agent: str = "WebCrawler/1.0",
@@ -63,11 +66,12 @@ class WebCrawler:
         self.start_url = start_url
         self.max_depth = max_depth
         self.max_urls = max_urls
+        self.crawl_non_html = crawl_non_html
         self.use_playwright = use_playwright
         self.user_agent = user_agent
         
         # Initialize components
-        self.url_manager = URLManager(start_url, max_depth, max_urls)
+        self.url_manager = URLManager(start_url, max_depth, max_urls, crawl_non_html=crawl_non_html)
         self.robots_parser = RobotsParser(user_agent)
         self.robots_parser.set_respect_robots(respect_robots)
         self.sitemap_parser = SitemapParser()
@@ -77,6 +81,8 @@ class WebCrawler:
         self.state = CrawlState.IDLE
         self.results: Dict[str, PageResult] = {}
         self.redirect_chains: Dict[str, List[str]] = {}
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()
         
         # Playwright resources
         self.browser: Optional[Browser] = None
@@ -112,7 +118,13 @@ class WebCrawler:
         
         # Initialize Playwright if needed
         if self.use_playwright:
-            await self._init_playwright()
+            try:
+                await self._init_playwright()
+            except Exception as exc:
+                # Fall back to HTTP crawl mode if Playwright is not available.
+                self.use_playwright = False
+                if self.on_error:
+                    await self.on_error(f"Playwright init failed, fallback to aiohttp: {exc}")
     
     async def _init_playwright(self):
         """Initialize Playwright browser"""
@@ -136,7 +148,14 @@ class WebCrawler:
             await self.url_manager.add_url(self.start_url, depth=0)
             
             # Process queue
-            while not self.url_manager.is_empty() and self.state == CrawlState.RUNNING:
+            while not self.url_manager.is_empty():
+                await self._pause_event.wait()
+
+                if self.state == CrawlState.STOPPED:
+                    break
+                if self.state != CrawlState.RUNNING:
+                    continue
+
                 url = await self.url_manager.get_next_url()
                 if url:
                     await self._crawl_url(url)
@@ -199,7 +218,8 @@ class WebCrawler:
             'User-Agent': self.user_agent if 'Mozilla' in self.user_agent else 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
+            # Avoid advertising Brotli when the runtime may not have Brotli decoder support.
+            'Accept-Encoding': 'gzip, deflate',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
             'Sec-Fetch-Dest': 'document',
@@ -221,15 +241,25 @@ class WebCrawler:
                     result.ttfb = time.time() - start_time
                     
                     result.status_code = response.status
-                    result.headers = dict(response.headers)
+                    result.status_text = response.reason
+                    # Normalize header keys to lowercase so downstream extraction is case-insensitive.
+                    result.headers = {str(k).lower(): str(v) for k, v in dict(response.headers).items()}
+                    content_type = (response.headers.get('content-type') or '').lower()
                     
                     # Track redirects
                     if response.history:
                         result.redirects = [str(r.url) for r in response.history]
                         self.redirect_chains[url] = result.redirects
-                    
-                    # Get content
-                    result.html = await response.text()
+
+                    # Skip non-HTML bodies by default to keep crawl budget focused on pages.
+                    if self.crawl_non_html or self._is_html_content_type(content_type):
+                        body_bytes = await response.read()
+                        result.html = self._decode_response_body(body_bytes, response.charset)
+                        result.raw_html = result.html
+                    else:
+                        result.html = ''
+                        result.raw_html = ''
+
                     result.load_time = time.time() - start_time
                     
         except Exception as e:
@@ -251,8 +281,16 @@ class WebCrawler:
             
             result.ttfb = time.time() - start_time
             result.status_code = response.status if response else None
-            result.headers = dict(response.headers) if response else {}
-            
+            if response:
+                status_text = getattr(response, "status_text", None)
+                result.status_text = status_text() if callable(status_text) else status_text
+            result.headers = {str(k).lower(): str(v) for k, v in dict(response.headers).items()} if response else {}
+            if response:
+                try:
+                    result.raw_html = await response.text()
+                except Exception:
+                    result.raw_html = None
+
             # Get rendered HTML
             result.html = await page.content()
             result.load_time = time.time() - start_time
@@ -267,38 +305,77 @@ class WebCrawler:
     
     async def _extract_and_queue_links(self, source_url: str, html: str):
         """Extract links from HTML and add to queue"""
-        soup = BeautifulSoup(html, 'lxml')
-        
-        # Get current URL depth
+        hrefs = await asyncio.to_thread(self._extract_hrefs, html, source_url)
+
         current_depth = self.url_manager.get_url_metadata(source_url).get('depth', 0)
-        
-        # Extract all links
-        for link in soup.find_all('a', href=True):
-            href = link['href']
-            absolute_url = urljoin(source_url, href)
-            
-            # Add to queue (URL manager will handle filtering)
+
+        for href in hrefs:
             await self.url_manager.add_url(
-                absolute_url,
+                href,
                 depth=current_depth + 1,
                 source_url=source_url
             )
+
+    @staticmethod
+    def _extract_hrefs(html: str, current_url: str) -> List[str]:
+        """Parse anchors and image-map areas off the event loop to keep the crawler responsive."""
+        soup = BeautifulSoup(html, 'lxml')
+        base_tag = soup.find('base', href=True)
+        base_href = urljoin(current_url, base_tag.get('href', '').strip()) if base_tag else current_url
+        filtered_links: List[str] = []
+        for link in soup.find_all(['a', 'area'], href=True):
+            href = (link.get('href') or '').strip()
+            if not href:
+                continue
+            if href.startswith('#'):
+                continue
+            if href.lower().startswith(('javascript:', 'mailto:', 'tel:', 'data:', 'sms:')):
+                continue
+            parsed_href = urlparse(href)
+            if parsed_href.scheme and parsed_href.scheme not in ('http', 'https'):
+                continue
+
+            filtered_links.append(urljoin(base_href, href))
+        return filtered_links
+
+    @staticmethod
+    def _decode_response_body(body_bytes: bytes, charset: Optional[str]) -> str:
+        """Decode response bytes safely even when origin charset metadata is wrong/missing."""
+        if not body_bytes:
+            return ''
+
+        if charset:
+            try:
+                return body_bytes.decode(charset, errors='replace')
+            except (LookupError, UnicodeDecodeError):
+                pass
+
+        try:
+            return body_bytes.decode('utf-8', errors='replace')
+        except UnicodeDecodeError:
+            return body_bytes.decode('latin-1', errors='replace')
+
+    @staticmethod
+    def _is_html_content_type(content_type: str) -> bool:
+        normalized = (content_type or '').lower()
+        return 'text/html' in normalized or 'application/xhtml+xml' in normalized
     
     async def pause(self):
         """Pause the crawl"""
         if self.state == CrawlState.RUNNING:
             self.state = CrawlState.PAUSED
+            self._pause_event.clear()
     
     async def resume(self):
         """Resume a paused crawl"""
         if self.state == CrawlState.PAUSED:
             self.state = CrawlState.RUNNING
-            await self.crawl()
+            self._pause_event.set()
     
     async def stop(self):
         """Stop the crawl"""
         self.state = CrawlState.STOPPED
-        await self.cleanup()
+        self._pause_event.set()
     
     async def cleanup(self):
         """Clean up resources"""

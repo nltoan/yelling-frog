@@ -3,6 +3,13 @@
 
 ---
 
+## Scope Note
+
+This document is a target feature specification (what we aim to support), not a real-time completion report.
+For current implementation status, refer to the repo status docs and verified test outputs.
+
+---
+
 ## 📊 DATA COLUMNS (55+ columns per URL)
 
 ### Core URL Data

@@ -2,9 +2,11 @@
 Test script for the modular crawler
 """
 import asyncio
+import pytest
 from webcrawler.spider import WebCrawler, CrawlState
 
 
+@pytest.mark.asyncio
 async def test_basic_crawl():
     """Test basic crawling functionality"""
     print("🕷️  Testing WebCrawler modular components...")

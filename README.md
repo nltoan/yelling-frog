@@ -1,6 +1,13 @@
-# 🕷️ Web Crawler - Complete Screaming Frog Clone
+# 🕷️ Web Crawler - Screaming Frog-Inspired SEO Crawler
 
-A fully-featured SEO web crawler built with Python, implementing **ALL** features from Screaming Frog SEO Spider.
+A Python SEO crawler inspired by Screaming Frog, with crawl control, SEO extraction, issue auditing, and export workflows.
+
+## 📌 Current Status (March 11, 2026)
+
+- Core crawling, extraction, analysis, and exports are working in this repo.
+- Some "100% complete" claims in older docs were overstated and have been revised.
+- Current automated test run in this environment: `28 passed, 0 skipped`.
+- Local 1000+ page benchmark passed on March 11, 2026 (`1201` pages crawled, `0` failed).
 
 ## ✨ Features
 
@@ -172,7 +179,9 @@ curl -X POST http://localhost:8000/api/crawl/start \
     "start_url": "https://example.com",
     "max_urls": 100,
     "max_depth": 5,
+    "crawl_non_html": false,
     "requests_per_second": 1.0,
+    "use_playwright": true,
     "respect_robots": true,
     "user_agent": "WebCrawler/1.0"
   }'
@@ -201,6 +210,25 @@ curl http://localhost:8000/api/data/{session_id}/urls?filter=non_indexable
 
 ```bash
 curl http://localhost:8000/api/data/{session_id}/stats
+```
+
+### Get Named Reports (Spec-aligned)
+
+```bash
+# List all report types
+curl http://localhost:8000/api/reports/{session_id}
+
+# Fetch one report (examples)
+curl http://localhost:8000/api/reports/{session_id}/crawl_overview
+curl http://localhost:8000/api/reports/{session_id}/issues_report
+curl http://localhost:8000/api/reports/{session_id}/link_score
+
+# Export one named report to CSV
+curl http://localhost:8000/api/reports/{session_id}/response_codes/csv -o response_codes.csv
+
+# Export one named report to JSON / XLSX
+curl http://localhost:8000/api/reports/{session_id}/response_codes/json -o response_codes.json
+curl http://localhost:8000/api/reports/{session_id}/response_codes/xlsx -o response_codes.xlsx
 ```
 
 ### Run Analysis
@@ -257,15 +285,47 @@ The project includes comprehensive tests:
 - **test_integration.py** - Full end-to-end test
 
 ```bash
-# Run all tests
-python test_crawler.py
-python test_extractors.py
-python test_integration.py
+# Recommended test command
+pytest -q
+
+# 1000+ page local benchmark
+python benchmarks/benchmark_1000_pages.py --pages 1200 --rps 800
 ```
+
+Latest local run (March 11, 2026): `28 passed, 0 skipped`.
+Latest benchmark run (March 11, 2026): `1201` crawled, `0` failed, `state=completed`.
+
+```bash
+# Generate Screaming Frog filter parity matrix (spec vs implementation)
+python scripts/generate_filter_parity_matrix.py
+
+# Generate Screaming Frog report parity matrix (spec vs implementation)
+python scripts/generate_report_parity_matrix.py
+
+# Validate full parity (filters + reports), exits non-zero if not complete
+python scripts/validate_spec_parity.py
+```
+
+Generated outputs:
+- `reports/filter_parity_matrix.md`
+- `reports/filter_parity_matrix.json`
+- `reports/report_parity_matrix.md`
+- `reports/report_parity_matrix.json`
+
+Latest parity run (March 11, 2026):
+- Spec filters: `122`
+- Fully implemented across DB+API+UI: `122`
+- Partial: `0`
+- Missing: `0`
+
+Latest report parity run (March 11, 2026):
+- Spec reports: `16`
+- Implemented: `16`
+- Missing: `0`
 
 ## 📊 Data Schema
 
-The crawler stores **55+ columns** per URL, matching Screaming Frog exactly:
+The crawler stores a broad internal URL schema (100+ fields) and can export a Screaming Frog-style CSV (72 columns):
 
 ### Core Data
 - URL, Status Code, Content Type, Indexability
@@ -318,6 +378,7 @@ crawler = WebCrawler(
     start_url="https://example.com",
     max_depth=10,               # Maximum click depth
     max_urls=10000,             # Maximum URLs to crawl
+    crawl_non_html=False,       # Skip obvious non-HTML resources
     requests_per_second=1.0,    # Rate limit
     use_playwright=False,       # JavaScript rendering (optional)
     user_agent="Custom Bot/1.0",
@@ -342,20 +403,24 @@ db = Database("/custom/path/crawl.db")
 - `redirection_3xx` - 300-399 redirects
 - `client_error_4xx` - 400-499 errors
 - `server_error_5xx` - 500-599 errors
+- `crawl_error` - Crawl request failed (no status returned)
 
 ### Titles
 - `missing_title` - No title tag
+- `duplicate_title` - Duplicate title values
 - `title_over_60_chars` - Title too long for SERP
 - `title_below_30_chars` - Title too short
 - `multiple_titles` - More than one title tag
 
 ### Meta Descriptions
 - `missing_meta_description` - No meta description
+- `duplicate_meta_description` - Duplicate meta description values
 - `meta_description_over_155_chars` - Too long
 - `meta_description_below_70_chars` - Too short
 
 ### Headings
 - `missing_h1` - No H1 tag
+- `duplicate_h1` - Duplicate H1 values
 - `multiple_h1` - Multiple H1 tags
 - `h1_over_70_chars` - H1 too long
 
@@ -409,7 +474,7 @@ See `requirements.txt` for complete list:
 
 ## 🤝 Contributing
 
-This is a complete implementation of Screaming Frog features. Contributions welcome for:
+Contributions welcome for:
 - Additional export formats
 - Performance optimizations
 - UI enhancements

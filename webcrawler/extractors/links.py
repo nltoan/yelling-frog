@@ -2,7 +2,7 @@
 Link Extractor
 Extracts and analyzes all internal and external links, anchor text, and link metrics
 """
-from typing import Dict, List, Set, Tuple, Any
+from typing import Dict, List, Set, Tuple, Any, Iterable
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import re
@@ -25,6 +25,52 @@ class LinkExtractor:
         """Normalize domain by removing www. prefix for consistent matching"""
         return normalize_domain(domain)
 
+    @staticmethod
+    def _base_href(soup: BeautifulSoup, current_url: str) -> str:
+        """Resolve relative resources against an HTML <base> tag when present."""
+        base_tag = soup.find('base', href=True)
+        if base_tag and base_tag.get('href'):
+            return urljoin(current_url, base_tag.get('href', '').strip())
+        return current_url
+
+    @staticmethod
+    def _iter_link_elements(soup: BeautifulSoup) -> Iterable:
+        """Yield crawlable/linkable elements that carry an href."""
+        return soup.find_all(['a', 'area'], href=True)
+
+    @staticmethod
+    def _normalize_rel_values(element) -> Set[str]:
+        """Normalize rel attribute into a lowercase token set."""
+        rel = element.get('rel', [])
+        if isinstance(rel, str):
+            rel = re.split(r'[\s,]+', rel.strip())
+        return {
+            str(item).strip().lower()
+            for item in rel
+            if str(item).strip()
+        }
+
+    def _extract_anchor_text(self, element) -> str:
+        """Derive the most useful human-readable anchor text for SEO analysis."""
+        text = re.sub(r'\s+', ' ', ' '.join(element.stripped_strings)).strip()
+        if text:
+            return text
+
+        image_alts = [
+            re.sub(r'\s+', ' ', (img.get('alt') or '').strip()).strip()
+            for img in element.find_all('img')
+            if (img.get('alt') or '').strip()
+        ]
+        if image_alts:
+            return ' / '.join(image_alts[:3])
+
+        for attr in ('aria-label', 'title', 'alt'):
+            value = re.sub(r'\s+', ' ', (element.get(attr) or '').strip()).strip()
+            if value:
+                return value
+
+        return ''
+
     def extract(self, html: str, current_url: str) -> Dict[str, Any]:
         """
         Extract all link data
@@ -40,37 +86,56 @@ class LinkExtractor:
         """
         soup = BeautifulSoup(html, 'lxml')
 
+        base_href = self._base_href(soup, current_url)
         internal_links = []
         external_links = []
         anchor_texts = {}  # URL -> [anchor texts]
+        link_rows = []
 
-        # Find all anchor tags
-        for link in soup.find_all('a', href=True):
+        # Find all HTML links that can contribute to internal/external link signals.
+        for link in self._iter_link_elements(soup):
             href = link.get('href', '').strip()
             if not href or href.startswith('#') or href.startswith('javascript:') or href.startswith('mailto:') or href.startswith('tel:'):
                 continue
 
             # Resolve relative URLs
-            absolute_url = urljoin(current_url, href)
+            absolute_url = urljoin(base_href, href)
             parsed_url = urlparse(absolute_url)
 
             # Get anchor text
-            anchor_text = link.get_text().strip()
+            anchor_text = self._extract_anchor_text(link)
+            rel_values = self._normalize_rel_values(link)
+            normalized_target = util_normalize_url(absolute_url)
+            is_nofollow = 'nofollow' in rel_values
 
             # Determine if internal or external (handles www/non-www)
             url_domain = self._normalize_domain(parsed_url.netloc)
             if url_domain == self.base_domain or parsed_url.netloc == '':
-                # Normalize internal links for consistent storage and lookup
-                normalized_url = util_normalize_url(absolute_url)
-                internal_links.append(normalized_url)
-                if normalized_url not in anchor_texts:
-                    anchor_texts[normalized_url] = []
-                anchor_texts[normalized_url].append(anchor_text)
+                internal_links.append(normalized_target)
+                if normalized_target not in anchor_texts:
+                    anchor_texts[normalized_target] = []
+                if anchor_text:
+                    anchor_texts[normalized_target].append(anchor_text)
+                link_rows.append({
+                    'target_url': normalized_target,
+                    'anchor_text': anchor_text or None,
+                    'is_internal': True,
+                    'is_nofollow': is_nofollow,
+                    'link_type': 'href',
+                })
             else:
-                external_links.append(absolute_url)
-                if absolute_url not in anchor_texts:
-                    anchor_texts[absolute_url] = []
-                anchor_texts[absolute_url].append(anchor_text)
+                external_links.append(normalized_target)
+                if normalized_target not in anchor_texts:
+                    anchor_texts[normalized_target] = []
+                if anchor_text:
+                    anchor_texts[normalized_target].append(anchor_text)
+                link_rows.append({
+                    'target_url': normalized_target,
+                    'anchor_text': anchor_text or None,
+                    'is_internal': False,
+                    'is_nofollow': is_nofollow,
+                    'link_type': 'href',
+                })
 
         # Calculate metrics using normalized URLs
         unique_internal = set(internal_links)
@@ -80,6 +145,7 @@ class LinkExtractor:
             'internal_links': internal_links,
             'external_links': external_links,
             'anchor_texts': anchor_texts,
+            'link_rows': link_rows,
             'outlinks': len(internal_links),
             'unique_outlinks': len(unique_internal),
             'external_outlinks': len(external_links),
@@ -95,15 +161,16 @@ class LinkExtractor:
         Returns list of absolute URLs
         """
         soup = BeautifulSoup(html, 'lxml')
+        base_href = self._base_href(soup, current_url)
         links = []
 
-        for link in soup.find_all('a', href=True):
+        for link in self._iter_link_elements(soup):
             href = link.get('href', '').strip()
             if not href or href.startswith('#') or href.startswith('javascript:') or href.startswith('mailto:') or href.startswith('tel:'):
                 continue
 
             # Resolve relative URLs
-            absolute_url = urljoin(current_url, href)
+            absolute_url = urljoin(base_href, href)
             links.append(absolute_url)
 
         return links
@@ -117,14 +184,15 @@ class LinkExtractor:
     def extract_nofollow_links(self, html: str, current_url: str) -> List[str]:
         """Extract links with rel=nofollow"""
         soup = BeautifulSoup(html, 'lxml')
+        base_href = self._base_href(soup, current_url)
         nofollow_links = []
 
-        for link in soup.find_all('a', href=True):
-            rel = link.get('rel', [])
+        for link in self._iter_link_elements(soup):
+            rel = self._normalize_rel_values(link)
             if 'nofollow' in rel:
                 href = link.get('href', '').strip()
                 if href and not href.startswith('#'):
-                    absolute_url = urljoin(current_url, href)
+                    absolute_url = urljoin(base_href, href)
                     nofollow_links.append(absolute_url)
 
         return nofollow_links
@@ -135,17 +203,18 @@ class LinkExtractor:
         These are security vulnerabilities
         """
         soup = BeautifulSoup(html, 'lxml')
+        base_href = self._base_href(soup, current_url)
         unsafe_links = []
 
-        for link in soup.find_all('a', href=True, target='_blank'):
-            rel = link.get('rel', [])
-            if isinstance(rel, str):
-                rel = [rel]
+        for link in self._iter_link_elements(soup):
+            if (link.get('target') or '').lower() != '_blank':
+                continue
+            rel = self._normalize_rel_values(link)
 
             if 'noopener' not in rel and 'noreferrer' not in rel:
                 href = link.get('href', '').strip()
                 if href:
-                    absolute_url = urljoin(current_url, href)
+                    absolute_url = urljoin(base_href, href)
                     unsafe_links.append(absolute_url)
 
         return unsafe_links

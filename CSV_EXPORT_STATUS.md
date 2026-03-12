@@ -1,10 +1,14 @@
-# Screaming Frog CSV Export - IMPLEMENTATION COMPLETE ✅
+# Screaming Frog CSV Export - Status Snapshot
 
-## Format Compliance: 100%
+## Snapshot Date
+
+March 11, 2026
+
+## Format Compliance (Last Verified Sample)
 
 ```
 ✅ Column Count: 72/72
-✅ Column Order: Exact match
+✅ Column Order: Matches export spec
 ✅ Data Formats: All correct (integers, 3-decimal floats)
 ✅ Quoting: All fields quoted
 ✅ Encoding: UTF-8 with BOM
@@ -12,9 +16,13 @@
 ✅ Timestamp: YYYY-MM-DD HH:MM:SS
 ```
 
+Notes:
+- This file records a validated sample run, not a blanket guarantee for every future crawl/session.
+- Use this as an operational reference and re-validate after major exporter/schema changes.
+
 ## Implemented Features
 
-### Core Columns (ALL WORKING)
+### Core Columns (Validated)
 - Address, Content Type, Status Code, Status
 - Indexability, Indexability Status (with redirect/error handling)
 - Title 1, Title 1 Length, Title 1 Pixel Width
@@ -25,7 +33,7 @@
 - Canonical Link Element 1
 - rel="next" 1, rel="prev" 1, HTTP rel="next" 1, HTTP rel="prev" 1
 
-### Content Analysis (ALL WORKING)
+### Content Analysis (Validated)
 - Word Count
 - Sentence Count ✨ NEW
 - Average Words Per Sentence ✨ NEW  
@@ -34,18 +42,18 @@
 - Text Ratio
 - Hash (MD5)
 
-### Performance (ALL WORKING)
+### Performance (Validated)
 - Size (bytes)
 - Transferred (bytes)
 - Total Transferred (bytes)
 - Response Time
 - Last Modified
 
-### Carbon/CO2 (ALL WORKING) ✨ NEW
+### Carbon/CO2 (Validated) ✨ NEW
 - CO2 (mg) - calculated from page size
 - Carbon Rating (A+ to F)
 
-### Link Metrics (ALL WORKING)
+### Link Metrics (Validated)
 - Crawl Depth
 - Folder Depth
 - Link Score (PageRank-style)
@@ -54,16 +62,16 @@
 - Outlinks, Unique Outlinks, Unique JS Outlinks
 - External Outlinks, Unique External Outlinks, Unique External JS Outlinks
 
-### Near Duplicates (WORKING)
+### Near Duplicates (Validated)
 - Closest Near Duplicate Match
 - No. Near Duplicates
 - Based on content hash matching
 
-### Redirects (WORKING)
+### Redirects (Validated)
 - Redirect URL
 - Redirect Type (HTTP Redirect, Meta Refresh, JavaScript Redirect, HSTS Policy)
 
-### Technical (ALL WORKING)
+### Technical (Validated)
 - Language
 - HTTP Version
 - URL Encoded Address
@@ -87,7 +95,7 @@ These columns are empty because the crawled site doesn't have these features:
 ## Files Modified
 
 1. **webcrawler/storage/screaming_frog_exporter.py** - NEW
-   - Full 72-column export matching Screaming Frog exactly
+   - Full 72-column export matching the local export specification
    - CO2 and Carbon Rating calculations
    - Proper formatting (quoting, decimals, timestamps)
 
@@ -130,5 +138,5 @@ docker exec webcrawler-dev python crawl_site.py https://example.com --max-pages 
 ## Test Results
 ```
 8 passed, 2 skipped (async tests)
-All format compliance checks: ✅ PASS
+Format compliance checks for the sampled run: ✅ PASS
 ```

@@ -575,6 +575,16 @@ CREATE TABLE IF NOT EXISTS hreflang (
 CREATE INDEX IF NOT EXISTS idx_hreflang_session ON hreflang(session_id);
 CREATE INDEX IF NOT EXISTS idx_hreflang_page ON hreflang(page_url);
 
+-- Sitemap URLs discovered for each crawl session
+CREATE TABLE IF NOT EXISTS sitemap_urls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    UNIQUE(session_id, url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sitemap_urls_session ON sitemap_urls(session_id);
+
 -- Crawl sessions table
 CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
@@ -608,4 +618,38 @@ CREATE TABLE IF NOT EXISTS issues (
 CREATE INDEX IF NOT EXISTS idx_issues_session ON issues(session_id);
 CREATE INDEX IF NOT EXISTS idx_issues_type ON issues(issue_type);
 CREATE INDEX IF NOT EXISTS idx_issues_code ON issues(issue_code);
+
+-- Per-page audit notes / cached insights
+CREATE TABLE IF NOT EXISTS page_audit_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    target_keyword TEXT,
+    ai_summary TEXT,
+    ai_data TEXT,
+    updated_at TEXT,
+    UNIQUE(session_id, url)
+);
+
+CREATE INDEX IF NOT EXISTS idx_page_audit_notes_session ON page_audit_notes(session_id);
+CREATE INDEX IF NOT EXISTS idx_page_audit_notes_url ON page_audit_notes(url);
+
+-- Manual fix queue / task board
+CREATE TABLE IF NOT EXISTS fix_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    url TEXT NOT NULL,
+    issue_code TEXT,
+    issue_label TEXT,
+    priority TEXT,
+    status TEXT DEFAULT 'queued',
+    notes TEXT,
+    created_at TEXT,
+    updated_at TEXT,
+    UNIQUE(session_id, url, issue_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fix_queue_session ON fix_queue(session_id);
+CREATE INDEX IF NOT EXISTS idx_fix_queue_status ON fix_queue(status);
+CREATE INDEX IF NOT EXISTS idx_fix_queue_url ON fix_queue(url);
 """

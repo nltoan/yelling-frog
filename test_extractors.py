@@ -272,6 +272,7 @@ def test_page_processor():
     url_data = processor.process_page(
         url="https://example.com/test-page",
         html=SAMPLE_HTML,
+        raw_html=SAMPLE_HTML,
         status_code=200,
         status_text="OK",
         headers={

@@ -3,7 +3,7 @@ URL Manager - Handles URL queue, deduplication, and priority
 """
 import asyncio
 from typing import Set, Optional, Dict, List
-from urllib.parse import urlparse, urljoin, urldefrag
+from urllib.parse import urlparse, urljoin
 from collections import deque
 import re
 
@@ -12,12 +12,33 @@ from ..utils.url_normalizer import normalize_url as util_normalize_url, normaliz
 
 class URLManager:
     """Manages URL queue with deduplication and priority"""
+    ALLOWED_SCHEMES = {'http', 'https'}
+    BLOCKED_EXTENSIONS = {
+        # Images
+        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg', '.ico', '.bmp', '.tif', '.tiff',
+        # Video/audio
+        '.mp4', '.webm', '.mov', '.avi', '.mkv', '.mp3', '.wav', '.aac', '.ogg', '.flac', '.m4a',
+        # Docs/archives/executables
+        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.zip', '.rar', '.7z', '.tar', '.gz',
+        '.exe', '.dmg', '.pkg', '.apk', '.iso',
+        # Fonts / feeds / data
+        '.woff', '.woff2', '.ttf', '.otf', '.eot', '.rss', '.xml', '.json', '.txt',
+        # Frontend static assets
+        '.css', '.js', '.mjs', '.map',
+    }
     
-    def __init__(self, base_url: str, max_depth: int = 10, max_urls: int = 10000):
+    def __init__(
+        self,
+        base_url: str,
+        max_depth: int = 10,
+        max_urls: int = 10000,
+        crawl_non_html: bool = False
+    ):
         self.base_url = base_url
         self.base_domain = self._normalize_domain(urlparse(base_url).netloc)
         self.max_depth = max_depth
         self.max_urls = max_urls
+        self.crawl_non_html = crawl_non_html
         
         # URL tracking
         self.seen_urls: Set[str] = set()
@@ -48,11 +69,16 @@ class URLManager:
     def is_internal(self, url: str) -> bool:
         """Check if URL belongs to the base domain (handles www/non-www)"""
         parsed = urlparse(url)
+        if parsed.scheme and parsed.scheme not in self.ALLOWED_SCHEMES:
+            return False
         url_domain = normalize_domain(parsed.netloc)
-        return url_domain == self.base_domain or parsed.netloc == ''
+        return url_domain == self.base_domain
     
     def should_crawl(self, url: str) -> bool:
         """Determine if URL should be crawled based on patterns"""
+        if not self.crawl_non_html and self._has_blocked_extension(url):
+            return False
+
         # Check exclude patterns first
         for pattern in self.exclude_patterns:
             if pattern.search(url):
@@ -63,6 +89,16 @@ class URLManager:
             return any(pattern.search(url) for pattern in self.include_patterns)
         
         return True
+
+    @classmethod
+    def _has_blocked_extension(cls, url: str) -> bool:
+        """Return True for obvious non-HTML resource URLs."""
+        parsed = urlparse(url)
+        path = (parsed.path or '').lower()
+        for ext in cls.BLOCKED_EXTENSIONS:
+            if path.endswith(ext):
+                return True
+        return False
     
     async def add_url(self, url: str, depth: int = 0, source_url: Optional[str] = None) -> bool:
         """
@@ -70,6 +106,17 @@ class URLManager:
         Returns True if added, False otherwise
         """
         async with self._lock:
+            parsed_input = urlparse(url)
+
+            # Resolve relative URLs against the crawl start URL
+            if not parsed_input.scheme:
+                url = urljoin(self.base_url, url)
+                parsed_input = urlparse(url)
+
+            # Skip unsupported schemes early (mailto:, javascript:, data:, etc.)
+            if parsed_input.scheme.lower() not in self.ALLOWED_SCHEMES:
+                return False
+
             # Normalize URL
             url = self.normalize_url(url)
             

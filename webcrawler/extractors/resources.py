@@ -14,6 +14,32 @@ class ResourceExtractor:
     def __init__(self):
         pass
 
+    @staticmethod
+    def _base_href(soup: BeautifulSoup, current_url: str) -> str:
+        """Resolve relative resources against an HTML <base> tag when present."""
+        base_tag = soup.find('base', href=True)
+        if base_tag and base_tag.get('href'):
+            return urljoin(current_url, base_tag.get('href', '').strip())
+        return current_url
+
+    @staticmethod
+    def _resolve_image_source(img) -> Optional[str]:
+        """Pick the best available image source, including lazy-load attributes."""
+        for attr in ('src', 'data-src', 'data-lazy-src', 'data-original', 'data-image', 'data-fallback-src'):
+            value = (img.get(attr) or '').strip()
+            if value:
+                return value
+
+        for attr in ('srcset', 'data-srcset'):
+            value = (img.get(attr) or '').strip()
+            if not value:
+                continue
+            first_candidate = value.split(',')[0].strip().split(' ')[0].strip()
+            if first_candidate:
+                return first_candidate
+
+        return None
+
     def extract_images(self, html: str, current_url: str) -> List[Dict[str, Any]]:
         """
         Extract all images with metadata
@@ -28,15 +54,16 @@ class ResourceExtractor:
         - missing_size_attributes: Boolean
         """
         soup = BeautifulSoup(html, 'lxml')
+        base_href = self._base_href(soup, current_url)
         images = []
 
         for img in soup.find_all('img'):
-            src = img.get('src', '').strip()
+            src = self._resolve_image_source(img)
             if not src:
                 continue
 
             # Resolve relative URLs
-            absolute_url = urljoin(current_url, src)
+            absolute_url = urljoin(base_href, src)
 
             # Extract alt text
             alt_text = img.get('alt')
@@ -93,6 +120,7 @@ class ResourceExtractor:
         - media: Media attribute
         """
         soup = BeautifulSoup(html, 'lxml')
+        base_href = self._base_href(soup, current_url)
         css_resources = []
 
         for link in soup.find_all('link', rel='stylesheet'):
@@ -100,7 +128,7 @@ class ResourceExtractor:
             if not href:
                 continue
 
-            absolute_url = urljoin(current_url, href)
+            absolute_url = urljoin(base_href, href)
             media = link.get('media', 'all')
 
             css_data = {
@@ -124,6 +152,7 @@ class ResourceExtractor:
         - defer: Boolean
         """
         soup = BeautifulSoup(html, 'lxml')
+        base_href = self._base_href(soup, current_url)
         js_resources = []
 
         for script in soup.find_all('script', src=True):
@@ -131,7 +160,7 @@ class ResourceExtractor:
             if not src:
                 continue
 
-            absolute_url = urljoin(current_url, src)
+            absolute_url = urljoin(base_href, src)
 
             js_data = {
                 'resource_url': absolute_url,
@@ -210,6 +239,7 @@ class ResourceExtractor:
         - render_blocking_js: List of JS URLs without async/defer
         """
         soup = BeautifulSoup(html, 'lxml')
+        base_href = self._base_href(soup, current_url)
 
         render_blocking_css = []
         render_blocking_js = []
@@ -220,7 +250,7 @@ class ResourceExtractor:
             media = link.get('media', 'all')
 
             if href and media in ['all', 'screen', None]:
-                absolute_url = urljoin(current_url, href)
+                absolute_url = urljoin(base_href, href)
                 render_blocking_css.append(absolute_url)
 
         # JS without async or defer is render-blocking
@@ -228,7 +258,7 @@ class ResourceExtractor:
             src = script.get('src', '').strip()
 
             if src and not (script.has_attr('async') or script.has_attr('defer')):
-                absolute_url = urljoin(current_url, src)
+                absolute_url = urljoin(base_href, src)
                 render_blocking_js.append(absolute_url)
 
         return {

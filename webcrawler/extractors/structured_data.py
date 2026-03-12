@@ -14,6 +14,20 @@ class StructuredDataExtractor:
     def __init__(self):
         pass
 
+    def _iter_json_ld_nodes(self, data: Any):
+        """Yield every JSON-LD node, including nested @graph and list items."""
+        if isinstance(data, list):
+            for item in data:
+                yield from self._iter_json_ld_nodes(item)
+            return
+
+        if isinstance(data, dict):
+            yield data
+            for key in ('@graph', 'itemListElement', 'mainEntity', 'mainEntityOfPage'):
+                nested = data.get(key)
+                if nested:
+                    yield from self._iter_json_ld_nodes(nested)
+
     def extract_all(self, html: str) -> Dict[str, Any]:
         """
         Extract all structured data types
@@ -52,13 +66,13 @@ class StructuredDataExtractor:
 
         # From JSON-LD
         for item in json_ld_data:
-            if isinstance(item, dict):
-                type_val = item.get('@type')
+            for node in self._iter_json_ld_nodes(item):
+                type_val = node.get('@type')
                 if type_val:
                     if isinstance(type_val, list):
-                        schema_types.update(type_val)
+                        schema_types.update(str(entry) for entry in type_val if str(entry).strip())
                     else:
-                        schema_types.add(type_val)
+                        schema_types.add(str(type_val))
 
         # From Microdata
         for item in microdata:
@@ -221,24 +235,28 @@ class StructuredDataExtractor:
 
         # Validate JSON-LD
         for idx, item in enumerate(structured_data.get('json_ld', [])):
-            if isinstance(item, dict):
-                # Check for @context
-                if '@context' not in item:
-                    errors.append(f"JSON-LD item {idx}: Missing @context")
+            nodes = list(self._iter_json_ld_nodes(item))
+            for node_idx, node in enumerate(nodes):
+                if not isinstance(node, dict):
+                    continue
+                prefix = f"JSON-LD item {idx}" if node_idx == 0 else f"JSON-LD item {idx}.{node_idx}"
+
+                # Check for @context on the root payload only.
+                if node_idx == 0 and '@context' not in node:
+                    errors.append(f"{prefix}: Missing @context")
 
                 # Check for @type
-                if '@type' not in item:
-                    errors.append(f"JSON-LD item {idx}: Missing @type")
+                if '@type' not in node:
+                    errors.append(f"{prefix}: Missing @type")
 
                 # Validate common required fields based on type
-                item_type = item.get('@type', '')
+                item_type = node.get('@type', '')
                 if item_type:
-                    # Handle @type being a list (e.g., ["LocalBusiness", "Restaurant"])
                     if isinstance(item_type, list):
                         item_type = item_type[0] if item_type else ''
                     if item_type:
-                        validation_errors = self._validate_schema_type(item_type, item)
-                        errors.extend([f"JSON-LD item {idx}: {err}" for err in validation_errors])
+                        validation_errors = self._validate_schema_type(item_type, node)
+                        errors.extend([f"{prefix}: {err}" for err in validation_errors])
 
         # Validate Microdata
         for idx, item in enumerate(structured_data.get('microdata', [])):
